@@ -1,3 +1,5 @@
+from typing import Callable
+
 import MetaTrader5 as mt
 import numpy as np
 from datetime import datetime
@@ -9,31 +11,12 @@ import os
 from nautilus_trader.model.currency import Currency
 from nautilus_trader.model.data import BarType, Bar
 from nautilus_trader.model.identifiers import Venue
+from nautilus_trader.model.instruments import CurrencyPair
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 from nautilus_trader.persistence.wranglers import BarDataWrangler
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 
-
-class utils:
-    @staticmethod
-    def print_bytes(n_bytes: int, use_iec_binary=True):
-        # print the bytes in a human-readable format
-        # according to this table: https://en.wikipedia.org/wiki/Byte#Multiple-byte_units
-
-        if use_iec_binary:
-            units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"]
-            base = 1024
-        else:
-            units = ["B", "KB", "MB", "GB", "TB", "PB"]
-            base = 1000
-
-        for unit in units:
-            if n_bytes < base:
-                print(f"{n_bytes:.1f} {unit}")
-                return
-            n_bytes /= base
-
-
+# Can be given to BarDataWrangler for processing
 class CSV_MT5BarDataLoader:
     @staticmethod
     def load(file_path: os.PathLike[str] | str) -> pd.DataFrame:
@@ -45,6 +28,7 @@ class CSV_MT5BarDataLoader:
         df.index = pd.to_datetime(df.index, format="mixed")
         return df
 
+
 class MTLoginConfig:
     def __init__(self, server: str, login: int, password: str):
         self.server = server
@@ -52,56 +36,89 @@ class MTLoginConfig:
         self.password = password
 
 
-def init(config: MTLoginConfig = None) -> bool:
-    mt.initialize()
-    if config:
-        mt.login(config.login, config.password, config.server)
-    return mt.terminal_info().update_time > 0
-
-
-def is_init() -> bool:
-    return mt.terminal_info().update_time > 0
-
-
 class MT5Loader:
-    def __init__(self, data_path: str, catalog_path: str, config: MTLoginConfig = None, load_id: int = 0):
+    def __init__(self, data_path: str, catalog_path: str, config: MTLoginConfig = None, venue: str = None):
         self.config = config
         self.data_path = data_path
         self.catalog_path = catalog_path
-        self.venue = Venue(f"SIM-{self.config.server}")
+        if venue is not None:
+            self.venue = Venue(venue)
+        else:
+            self.venue = Venue(f"SIM-{self.config.server}")
         self.catalog = ParquetDataCatalog(self.catalog_path)
 
-    def delete_parquet_files(self, symbol: str, timeframe: int, parts: list[int] = None):
-        # delete all parquet files for the specified symbol and timeframe and parts
-        # if parts is None, delete all parts
+    @staticmethod
+    def server_venue_first_word(server: str) -> str:
+        return server.strip().split(" ")[0]
+
+    def init(self) -> bool:
+        config = self.config
+
+        mt.initialize()
+        if config:
+            mt.login(config.login, config.password, config.server)
+        info: mt.TerminalInfo = mt.terminal_info()
+        if info is None or not info.connected:
+            return False
+        return True
+
+    def get_venue(self) -> Venue:
+        return self.venue
+
+    def get_catalog(self) -> ParquetDataCatalog:
+        return self.catalog
+
+    def delete_catalog_parquet_files(self, symbol: str, timeframe: int, parts: list[int] = None):
+        # delete all parquet files for the specified symbol and timeframe by deleting the types directory
 
         # delete catalog dir
         if os.path.exists(self.catalog_path):
-            instrument_path = os.path.join(self.catalog_path, f"{symbol}.{self.venue.value}-{timeframe}-LAST-EXTERNAL")
+            instrument_path = os.path.join(self.catalog_path, f"{symbol}.{self.venue.value}-{timeframe}M-LAST-EXTERNAL")
             print(f"INFO: Deleting instrument at: {instrument_path}")
-            os.remove(instrument_path)
 
+            try:
+                os.removedirs(instrument_path)
+            except FileNotFoundError as error:
+                print(f"ERROR: {error}")
         pass
+
+
+    # "AUD/USD.SIM-1-MINUTE-MID-INTERNAL",
+    def get_bar_type(self, symbol: str, timeframe: int) -> BarType:
+        return BarType.from_str(symbol + f".{self.get_venue().value}-{timeframe}-MINUTE-MID-INTERNAL")
+
 
     def load(self, symbol: str, timeframe: int, start: datetime) -> bool:
-
-
+        # mt5 -> csv -> catalog
+        self.load_symbol_rates_to_csv(symbol, timeframe, start, datetime.now(), self.data_path)
+        self.load_csv_to_catalog(symbol, timeframe)
         pass
 
-    def get_catalog(self):
-        return self.catalog
 
-    def load_csv_to_catalog(self, symbol: str, timeframe: int, start: datetime, end: datetime) -> (Currency, BarType):
+
+    # NOTE: Works only with one stringt for both the symbol and the ticker
+    # TODO: add support for arbitrary symbols like "EURUSD.i" and "EURUSD_raw"
+
+    def get_instrument_FOREX(self, symbol: str) -> CurrencyPair:
+        return TestInstrumentProvider.default_fx_ccy(symbol, self.venue)
+
+    def get_instrument_METAL(self, symbol: str) -> CurrencyPair:
+        raise NotImplementedError("#not implemented, check mt5 differences for metals")
+
+    def get_instrument_CFD(self, symbol: str) -> CurrencyPair:
+        raise NotImplementedError("not implemented, check mt5 differences for CFDs (indices, stocks, etc.)")
+
+    def load_csv_to_catalog(self, symbol: str, timeframe: int):
         # create catalog directory if it doesn't exist
         if not os.path.exists(self.catalog_path):
             print(f"INFO: Creating catalog directory at: {self.catalog_path}")
             os.mkdir(self.catalog_path)
 
         instrument = TestInstrumentProvider.default_fx_ccy(symbol, self.venue)
-        ticker_path = os.path.join(self.data_path, ticker.replace('/', '') + ".csv")
+        ticker_path = os.path.join(self.data_path, symbol.replace('/', '') + ".csv")
         df = CSV_MT5BarDataLoader.load(ticker_path)
 
-        bar_type = BarType.from_str(ticker + f".{self.venue.value}-{timeframe}-LAST-EXTERNAL")  # arbitrary? but .SIM-*** and meaningful name
+        bar_type = self.get_bar_type(symbol=symbol, timeframe=timeframe)  # arbitrary? but .SIM-*** and meaningful name
         wrangler = BarDataWrangler(bar_type, instrument)
         bars: list[Bar] = wrangler.process(df)
 
@@ -115,7 +132,7 @@ class MT5Loader:
         return rates
 
     @staticmethod
-    def _load_symbol_to_frame(symbol: str, timeframe: int, date_from: datetime, date_to: datetime) -> (pd.DataFrame):
+    def load_symbol_to_frame(symbol: str, timeframe: int, date_from: datetime, date_to: datetime) -> pd.DataFrame:
         rates: np.ndarray = MT5Loader._load_rates(symbol, mt.TIMEFRAME_D1, date_from, date_to)
 
         # Prepare Dataframe
@@ -125,35 +142,9 @@ class MT5Loader:
         return rates
 
     @staticmethod
-    def _load_symbol_rates_to_csv(symbol, timeframe, start, end, data_path: str) -> bool:
+    def load_symbol_rates_to_csv(symbol, timeframe, start, end, data_path: str):
         # load data from the MetaTrader 5 terminal into parquet files for further backtesting
-
-        if not is_init():
-            print("Error: MT5 terminal not initialized")
-            return False
-        rates = MT5Loader._load_symbol_to_frame(symbol, timeframe, start, end)
-        csv_path = os.path.join(data_path, ticker.replace('/', '') + ".csv")
+        rates: pd.DataFrame = MT5Loader.load_symbol_to_frame(symbol, timeframe, start, end)
+        csv_path = os.path.join(data_path, symbol.replace('/', '') + ".csv")
         rates.to_csv(csv_path)
-        return True
 
-
-
-    def __enter__(self):
-        init(self.config)
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        mt.shutdown()
-
-
-
-
-
-
-
-
-# Load all tickers into catalog
-for ticker in tickers:
-
-
-catalog.instruments()
