@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "nautilus"
+version = "0.1.0"
+description = ""
+authors = ["put101 <tobiaspucher@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+nautilus-trader = {path = "nautilus_trader"}
+MetaTrader5 = "^5.0.45"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
