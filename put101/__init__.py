@@ -16,19 +16,6 @@ from nautilus_trader.persistence.catalog import ParquetDataCatalog
 from nautilus_trader.persistence.wranglers import BarDataWrangler
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
 
-# Can be given to BarDataWrangler for processing
-class CSV_MT5BarDataLoader:
-    @staticmethod
-    def load(file_path: os.PathLike[str] | str) -> pd.DataFrame:
-        df = pd.read_csv(
-            file_path,
-            index_col="time",
-            parse_dates=True,
-        )
-        df.index = pd.to_datetime(df.index, format="mixed")
-        return df
-
-
 class MTLoginConfig:
     def __init__(self, server: str, login: int, password: str):
         self.server = server

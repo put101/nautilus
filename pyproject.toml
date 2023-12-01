@@ -6,9 +6,10 @@ authors = ["put101 <tobiaspucher@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = "3.11"
 nautilus-trader = {path = "nautilus_trader"}
-MetaTrader5 = "^5.0.45"
+jupyterlab = "^4.0"
+python-dotenv = "^1.0.0"
 
 
 [build-system]

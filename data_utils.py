@@ -1,14 +1,15 @@
 import os
 from nautilus_trader.data.engine import ParquetDataCatalog
 from nautilus_trader.model.instruments import Instrument
-from nautilus_trader.nautilus_trader.model.data.bar import BarType, Bar
+from nautilus_trader.model.data.bar import BarType, Bar
 import pandas as pd
 from pandas import DataFrame
 
-from nautilus_trader.nautilus_trader.persistence.wranglers import BarDataWrangler
-
+from nautilus_trader.persistence.wranglers import BarDataWrangler
 
 # this file should be able to handle mt5 stuff without a dependency to mt5
+
+eurusd_daily_str = "EURUSD.SIM-1-DAY-BID-EXTERNAL"
 
 def load_mt5_csv_dataframe(file_path: os.PathLike[str] | str) -> DataFrame:
     df = pd.read_csv(
@@ -23,4 +24,13 @@ def load_df_bars(catalog: ParquetDataCatalog, df: DataFrame, bar_type: BarType, 
     wrangler = BarDataWrangler(bar_type, instrument)
     bars: list[Bar] = wrangler.process(df)
     return bars
+
+def bar_type_to_str(bar_type: BarType) -> str:
+    agg_src_mapping = {
+        1: 'EXTERNAL',
+        2: 'INTERNAL'
+    }
+    return f"{bar_type.instrument_id}-{bar_type.spec}-{agg_src_mapping[bar_type.aggregation_source]}"
+
+
 
