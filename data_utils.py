@@ -1,7 +1,7 @@
 import os
 from nautilus_trader.data.engine import ParquetDataCatalog
 from nautilus_trader.model.instruments import Instrument
-from nautilus_trader.model.data.bar import BarType, Bar
+from nautilus_trader.model.data import BarType, Bar
 import pandas as pd
 from pandas import DataFrame
 
@@ -9,6 +9,17 @@ from nautilus_trader.persistence.wranglers import BarDataWrangler
 
 # this file should be able to handle mt5 stuff without a dependency to mt5
 
+def buy_or_sell(flag):
+    '''
+    see https://www.mql5.com/en/forum/75268
+    for explanation on MetaTrader flags
+    '''
+    if (flag & 32) and (flag & 64):
+        return 'both'
+    elif flag & 32:
+        return 'buy'
+    elif flag & 64:
+        return 'sell'
 
 # delete a bar_type from catalog by deleting folder with its parquet part files\n",
 def delete_parquet_data(bar_type: BarType, catalog: str) -> bool:
@@ -42,6 +53,23 @@ def bar_type_to_str(bar_type: BarType) -> str:
         2: 'INTERNAL'
     }
     return f"{bar_type.instrument_id}-{bar_type.spec}-{agg_src_mapping[bar_type.aggregation_source]}"
+
+def print_bytes(n_bytes: int, use_iec_binary=True):
+    # print the bytes in a human-readable format
+    # according to this table: https://en.wikipedia.org/wiki/Byte#Multiple-byte_units
+
+    if use_iec_binary:
+        units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"]
+        base = 1024
+    else:
+        units = ["B", "KB", "MB", "GB", "TB", "PB"]
+        base = 1000
+
+    for unit in units:
+        if n_bytes < base:
+            print(f"{n_bytes:.1f} {unit}")
+            return
+        n_bytes /= base
 
 
 
