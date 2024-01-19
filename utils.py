@@ -9,14 +9,15 @@ from nautilus_trader.model.data import Bar
 from nautilus_trader.model.orders import OrderList
 from nautilus_trader.model.position import Position
 
-from nautilus_trader.data
-
-
 # others
 import mplfinance as mpf
 from datetime import timedelta
 import matplotlib.pyplot as plt
-from matplotlib.pyplot import Figure, Axes
+from matplotlib.pyplot import figure, axes
+from matplotlib.figure import Figure
+from matplotlib.axes import Axes
+
+
 import plotly.graph_objects as go
 from pandas import Timestamp
 

@@ -1,6 +1,3 @@
-# define bollinger band strategy
-# then try to visualize it
-# try to visualize clusters as well
 from builtins import bool
 from datetime import timedelta
 
@@ -9,6 +6,7 @@ from nautilus_trader.common.factories import OrderFactory
 from nautilus_trader.core.rust.model import OrderSide, TimeInForce, OrderType, TriggerType
 from nautilus_trader.indicators.base.indicator import Indicator
 from nautilus_trader.indicators.bollinger_bands import BollingerBands
+from nautilus_trader.indicators.average.moving_average import MovingAverage
 from nautilus_trader.model.data import BarType, Bar
 from nautilus_trader.model.instruments import Instrument
 from nautilus_trader.model.identifiers import Venue, InstrumentId
@@ -23,10 +21,18 @@ from indicators import TrackerMulti
 
 
 class BollingerClusterConfig(StrategyConfig):
-    bb_params: list[tuple[int, float]]
+    bb_params: list[tuple[
+        int,  # period
+        float  # std
+    ]]
+    # annotated version of above with the meaning of each parameter
+
+    # better way:
+
     instrument_id: str
     bar_type: str
     emulation_trigger: str = "NO_TRIGGER"
+
 
 class BollingerCluster(Strategy):
     def __init__(self, config: BollingerClusterConfig):
@@ -36,18 +42,31 @@ class BollingerCluster(Strategy):
         self.use_debugstop = False
         self.myconfig = config
         self.bar_type: BarType = BarType.from_str(config.bar_type)
-        self.bands: list[BollingerBands] = [BollingerBands(bb[0], bb[1]) for bb in self.myconfig.bb_params]
+
+        self.bands: list[BollingerBands] = [BollingerBands(
+            period, std) for period, std in self.myconfig.bb_params]
         self.trackers: list[TrackerMulti] = []
-        self.instrument_id: InstrumentId = InstrumentId.from_str(config.instrument_id)
+        self.instrument_id: InstrumentId = InstrumentId.from_str(
+            config.instrument_id)
         self.venue: Venue = self.instrument_id.venue
         self.emulation_trigger = TriggerType[config.emulation_trigger]
 
+        bollinger_getters = {
+                "lower": lambda x: x.lower,
+                "middle": lambda x: x.middle,
+                "upper": lambda x: x.upper
+        }
+
         for b in self.bands:
-            self.trackers.append(TrackerMulti(b, {
-                "lower": lambda: b.lower,
-                "middle": lambda: b.middle,
-                "upper": lambda: b.upper
-            }))
+            self.trackers.append(TrackerMulti(b, value_getters=bollinger_getters))
+
+        from nautilus_trader.indicators.average.ma_factory import MovingAverageFactory, MovingAverageType
+        ma_getters = {
+            "ma": lambda x: x.value
+        }
+        for m in [MovingAverageFactory.create(5, MovingAverageType.SIMPLE),
+                  MovingAverageFactory.create(10, MovingAverageType.EXPONENTIAL)]:
+            self.trackers.append(TrackerMulti(m, value_getters=ma_getters))
 
         self.indicators: list[Indicator] = []
         self.indicators.extend(self.trackers)
@@ -60,15 +79,21 @@ class BollingerCluster(Strategy):
 
         self.took_position = False
 
-        self.instrument: Instrument | None = None # see on_start
+        self.instrument: Instrument | None = None  # see on_start
+        self.processed_bars: list[Bar] = []
 
         print("initialized strategy")
+
+    @property
+    def bars(self) -> list[Bar]:
+        return self.processed_bars
 
     def on_start(self):
 
         self.instrument = self.cache.instrument(self.instrument_id)
         if self.instrument is None:
-            self.log.error(f"Could not find instrument for {self.instrument_id}")
+            self.log.error(
+                f"Could not find instrument for {self.instrument_id}")
             self.stop()
             return
 
@@ -93,6 +118,8 @@ class BollingerCluster(Strategy):
             if not indicator.initialized:
                 return
 
+        self.processed_bars.append(bar)
+
         portfolio: Portfolio = self.portfolio
         order_factory: OrderFactory = self.order_factory
 
@@ -104,8 +131,8 @@ class BollingerCluster(Strategy):
         PIP_SIZE = 10 * POINT_SIZE
 
         # Portfolio tracking
-        portfolio:Portfolio = self.portfolio
-        account:Account = portfolio.account(self.venue)
+        portfolio: Portfolio = self.portfolio
+        account: Account = portfolio.account(self.venue)
         account.balance_total()
         self.balances_timestamps.append(bar.ts_event)
         self.balances.append(account.balance_total())
@@ -114,9 +141,11 @@ class BollingerCluster(Strategy):
 
         if isFlat:
             if self.bands[0].lower > bar.close.as_double():
-                self.buy(bar.close.as_double(), bar.close.as_double() - SL_POINTS*POINT_SIZE, bar.close.as_double() + TP_POINTS*POINT_SIZE, 1000)
+                self.buy(bar.close.as_double(), bar.close.as_double(
+                ) - SL_POINTS*POINT_SIZE, bar.close.as_double() + TP_POINTS*POINT_SIZE, 1000)
             elif self.bands[0].upper < bar.close.as_double():
-                self.sell(bar.close.as_double(), bar.close.as_double() + SL_POINTS*POINT_SIZE, bar.close.as_double() - TP_POINTS*POINT_SIZE, 1000)
+                self.sell(bar.close.as_double(), bar.close.as_double(
+                ) + SL_POINTS*POINT_SIZE, bar.close.as_double() - TP_POINTS*POINT_SIZE, 1000)
         else:
             self.took_position = True
 
@@ -133,7 +162,6 @@ class BollingerCluster(Strategy):
             fig = utils.add_multiline_indicator(fig, tracker, "white")
 
         return fig
-
 
     def buy(self, entry: float, sl: float, tp: float, quantity: float) -> None:
         """
@@ -160,7 +188,6 @@ class BollingerCluster(Strategy):
         self.submit_order_list(order_list)
 
     def sell(self,  entry: float, sl: float, tp: float, quantity: float) -> None:
-
 
         order_list: OrderList = self.order_factory.bracket(
             instrument_id=self.instrument_id,

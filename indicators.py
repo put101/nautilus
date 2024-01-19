@@ -7,8 +7,9 @@ from nautilus_trader.model.data import Bar, QuoteTick
 from nautilus_trader.core.datetime import unix_nanos_to_dt, maybe_unix_nanos_to_dt
 from overrides.overrides import override
 
+
 class TrackerMulti(Indicator):
-    def __init__(self, sub_indicator: Indicator, value_getters: dict[str, callable]):
+    def __init__(self, sub_indicator: Indicator, value_getters: dict[str, callable], styling: dict):
         super().__init__([])
         self.sub_indicator = sub_indicator
         self.value_getters = value_getters
@@ -19,6 +20,10 @@ class TrackerMulti(Indicator):
             self.values[name] = []
         self.timestamps = []
 
+        self.styling: dict = styling
+
+    def __repr__(self):
+        return f"TrackerMulti({self.sub_indicator}, {self.value_getters})"
     def get_df(self) -> pd.DataFrame:
         df = pd.DataFrame(data={
             'ts': [maybe_unix_nanos_to_dt(ts) for ts in self.timestamps],
@@ -38,9 +43,8 @@ class TrackerMulti(Indicator):
 
     def _update_raw(self, bar: Bar):
         for name, getter in self.value_getters.items():
-            self.values[name].append(getter())
+            self.values[name].append(getter(self.sub_indicator))
         self.timestamps.append(bar.ts_event)
-
 
 
 
