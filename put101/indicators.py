@@ -1,4 +1,3 @@
-import overrides
 import pandas as pd
 import numpy as np
 from nautilus_trader.indicators.base.indicator import Indicator
@@ -9,7 +8,7 @@ from overrides.overrides import override
 
 
 class TrackerMulti(Indicator):
-    def __init__(self, sub_indicator: Indicator, value_getters: dict[str, callable], styling: dict):
+    def __init__(self, sub_indicator: Indicator, value_getters: dict[str, callable]):
         super().__init__([])
         self.sub_indicator = sub_indicator
         self.value_getters = value_getters
@@ -20,10 +19,9 @@ class TrackerMulti(Indicator):
             self.values[name] = []
         self.timestamps = []
 
-        self.styling: dict = styling
-
     def __repr__(self):
         return f"TrackerMulti({self.sub_indicator}, {self.value_getters})"
+
     def get_df(self) -> pd.DataFrame:
         df = pd.DataFrame(data={
             'ts': [maybe_unix_nanos_to_dt(ts) for ts in self.timestamps],
@@ -32,7 +30,7 @@ class TrackerMulti(Indicator):
             df[name] = values
 
         df['ts'] = pd.to_datetime(df['ts'])
-        
+
         df.set_index('ts', inplace=True, drop=True)
         return df
 
@@ -45,8 +43,6 @@ class TrackerMulti(Indicator):
         for name, getter in self.value_getters.items():
             self.values[name].append(getter(self.sub_indicator))
         self.timestamps.append(bar.ts_event)
-
-
 
     @property
     def initialized(self):
@@ -73,12 +69,12 @@ class TrackerFloat(Indicator):
     def has_inputs(self):
         return self.sub_indicator.has_inputs
 
-
     @override
     def reset(self):
         self.sub_indicator.reset()
         self.values = []
         self.timestamps = []
+
     @property
     def latest(self):
         return self.values[-1]
@@ -92,4 +88,3 @@ class TrackerFloat(Indicator):
     def _update_raw(self, bar: Bar, value: float):
         self.values.append(value)
         self.timestamps.append(bar.ts_event)
-
