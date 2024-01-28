@@ -1,5 +1,6 @@
 # This file defines stuff used all over the place for my plotting of my strategies.
 from nautilus_trader.core.datetime import maybe_unix_nanos_to_dt
+from nautilus_trader.model.events import OrderFilled
 from nautilus_trader.model.position import Position
 from nautilus_trader.model.data import Bar, BarType, BarSpecification
 from bokeh.plotting import figure, curdoc, output_notebook, reset_output
@@ -78,7 +79,31 @@ def add_overlay_indicator_to_plot(p: figure,
     return p
 
 
+def add_position_orderfills_to_plot(p: figure, fills: list[OrderFilled]):
+    df = pd.DataFrame([o.to_dict() for o in fills])
+
+    df["ts_event"] = df["ts_event"].apply(lambda x: maybe_unix_nanos_to_dt(x))
+
+    # only use relevant columns to avoid warnings about "too large int values" from bokeh
+    df = df[["ts_event", "last_px", "last_qty", "side", "order_id"]]
+
+    # add orderfills
+    p.circle("ts_event", "last__px", source=df, color="black", size=10),
+
+    # add hover tooltip
+    p.add_tools(HoverTool(tooltips=[("last_qty", "@last_qty"),
+                                    ("side", "@side"),
+                                    ("position_id", "@position_id"),
+                                    ("order_id", "@order_id")
+                                    ]))
+
+    return p
+
 def add_positions_to_plot(p, positions: list[Position]):
+    if not positions or len(positions) == 0:
+        print("No positions to plot.")
+        return p
+
     df = pd.DataFrame([p.to_dict() for p in positions])
 
     df["ts_opened"] = df["ts_opened"].apply(lambda x: maybe_unix_nanos_to_dt(x))
@@ -86,7 +111,8 @@ def add_positions_to_plot(p, positions: list[Position]):
     
 
     # only use relevant columns to avoid warnings about "too large int values" from bokeh
-    df = df[["ts_opened", "avg_px_open", "ts_closed", "avg_px_close", "realized_pnl", "realized_return", "peak_qty", "side"]]
+    df = df[["ts_opened", "avg_px_open", "ts_closed", "avg_px_close", "realized_pnl", "realized_return", "peak_qty",
+             "side", "position_id", "opening_order_id"]]
 
     df_all = df
 
@@ -101,9 +127,6 @@ def add_positions_to_plot(p, positions: list[Position]):
 
     # filter out others
     df = df[~others]
-
-
-    
 
     renderers = [
         # winners
@@ -126,6 +149,9 @@ def add_positions_to_plot(p, positions: list[Position]):
     p.add_tools(HoverTool(tooltips=[("peak_qty", "@peak_qty"),
                                     ("realized_pnl", "@realized_pnl"),
                                     ("realized_return", "@realized_return"),
+                                    ("side", "@side"),
+                                    ("position_id", "@position_id"),
+                                    ("opening_order_id", "@opening_order_id")
                                     ], renderers=renderers, mode="vline"))
 
     return p

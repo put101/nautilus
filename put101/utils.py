@@ -3,6 +3,7 @@ from enum import Enum
 
 import pandas as pd
 from nautilus_trader.accounting.accounts.base import Account
+from nautilus_trader.accounting.accounts.margin import MarginAccount
 from nautilus_trader.config.backtest import BacktestRunConfig, BacktestEngineConfig, BacktestVenueConfig
 from nautilus_trader.core.datetime import maybe_unix_nanos_to_dt
 from nautilus_trader.core.rust.model import PositionSide, OrderSide, TimeInForce, OrderType
@@ -32,12 +33,18 @@ import put101.vizz as vizz
 from put101.vizz import Styling, LineIndicatorStyle
 
 
+def in_session_hours(sessions: list[tuple[int, int]], ts: pd.Timestamp):
+    for start, end in sessions:
+        if start <= ts.hour < end:
+            return True
+    return False
+
 
 class RiskCalculator:
     @staticmethod
-    def qty_from_risk(risk: Decimal, entry: Decimal, exit: Decimal, ins: Instrument) -> Quantity:
-        risk_points = Decimal( abs(entry - exit)) / ins.price_increment
-        point_value_per_unit = ins.price_increment * ins.lot_size
+    def qty_from_risk(risk: float, entry: float, exit: float, ins: Instrument) -> Quantity:
+        risk_points = abs(entry - exit) / ins.price_increment
+        point_value_per_unit = float(ins.price_increment) * float(ins.lot_size)
         lots = (risk / risk_points) * (1 / point_value_per_unit)
         qty = lots * ins.lot_size
         return ins.make_qty(qty)
@@ -56,6 +63,9 @@ class PortfolioIndicator(Indicator):
         self.balance: float = 0
         self.unrealized_pnl: float = 0
         self.equity: float = 0
+        self.margin: float = 0
+        self.margin_pct: float = 0
+        self.free: float = 0
 
     @property
     def initialized(self):
@@ -79,6 +89,23 @@ class PortfolioIndicator(Indicator):
         self.unrealized_pnl = unreal_pnl_dict.get(a_currency, Money(0, a_currency)).as_double()
         # equity
         self.equity = self.balance + self.unrealized_pnl
+
+        # margin
+        self.margin = 0
+        if a.is_margin_account:
+            am: MarginAccount = a
+            # {}
+            # {InstrumentId('EURUSD.SIM_EIGHTCAP'): MarginBalance(initial=54.89 USD, maintenance=0.00 USD, instrument_id=EURUSD.SIM_EIGHTCAP)}
+
+            for k, v in am.margins().items():
+                self.margin += v.initial.as_double()
+
+        # margin pct
+        if self.equity > 0:
+            self.margin_pct = self.equity - self.margin
+        else:
+            self.margin_pct = 0
+
 
 def get_layout(res: BacktestResult, bars: list[Bar],
                overlay_indicators: list[TrackerMulti],
