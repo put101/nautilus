@@ -17,6 +17,8 @@ CATALOG_PATH = os.path.join(os.getcwd(), os.environ["CATALOG_PATH"])
 
 # nautilus_trader imports
 
+from nautilus_trader.model.position import Position
+from nautilus_trader.model.objects import Price
 from nautilus_trader.model.identifiers import Venue, InstrumentId, Symbol
 from nautilus_trader.model.data import Bar, BarType, QuoteTick
 from nautilus_trader.config import BacktestVenueConfig, BacktestDataConfig, BacktestRunConfig, BacktestEngineConfig
@@ -27,9 +29,7 @@ from nautilus_trader.config import LoggingConfig
 from nautilus_trader.core.datetime import dt_to_unix_nanos, maybe_unix_nanos_to_dt, unix_nanos_to_dt
 from nautilus_trader.persistence.catalog import ParquetDataCatalog
 from nautilus_trader.cache.cache import Cache
-from nautilus_trader.model.position import Position
-from nautilus_trader.model.objects import Price
-from decimal import Decimal
+import decimal
 
 # other imports
 from pandas import Timestamp
@@ -38,20 +38,11 @@ import mplfinance as mpf
 import matplotlib.pyplot as plt
 
 # my packages
-import put101.indicators as indicators
-importlib.reload(indicators)
-
+from put101 import indicators
 import strategies
-importlib.reload(strategies)
-
-import strategies.bollinger_cluster
-importlib.reload(strategies.bollinger_cluster)
-from strategies.bollinger_cluster import BollingerCluster
-
-
-import put101.utils as utils
-importlib.reload(utils)
-
+from strategies import bollinger_cluster
+from put101 import utils
+from put101 import vizz
 
 # ---------------- CONFIGURATION ----------------
 catalog = ParquetDataCatalog(CATALOG_PATH)
@@ -126,15 +117,9 @@ backtest_start = maybe_unix_nanos_to_dt(res.backtest_start)
 backtest_end = maybe_unix_nanos_to_dt(res.backtest_end)
 res
 
-# %%
-import put101.vizz as vizz
-
-# This allows multiple outputs from a single jupyter notebook cell:
-from IPython.core.interactiveshell import InteractiveShell
-InteractiveShell.ast_node_interactivity = "all"
 
 engine = node.get_engine(res.run_config_id)
-strategy: BollingerCluster = engine.trader.strategies()[0]
+strategy: bollinger_cluster.BollingerCluster = engine.trader.strategies()[0]
 cache: Cache = strategy.cache
 
 main_t, main_s = strategy.get_main_plottable_indicators()

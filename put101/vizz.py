@@ -31,6 +31,10 @@ class Styling:
     def to_dict(self):
         pass
 
+class ListStyling: 
+    def __init__(self, styles: list[Styling]):
+        self.styles = styles
+
 
 class PlotConfig:
     def __init__(self, title: str):
@@ -43,41 +47,62 @@ class PlotConfig:
 
 
 class LineIndicatorStyle(Styling):
-    def __init__(self, color: str, alpha: float, line_width: int):
+    def __init__(self, color: str, alpha: float, line_width: int, **kwargs):
         self.color = color
         self.alpha = alpha
         self.line_width = line_width
+        self.kwargs = kwargs
 
     def __repr__(self):
         return f"LineIndicatorStyle({self.color}, {self.alpha}, {self.line_width})"
 
     def to_dict(self):
-        return {
+        d = {
             "color": self.color,
             "alpha": self.alpha,
             "line_width": self.line_width
         }
+        d += self.kwargs
+        return d
 
 
 def add_overlay_indicator_scatter_to_plot(p: figure, df: pd.DataFrame,
                                           styling: Styling) -> figure:
+
+
     for i, col in enumerate(df.columns):
         p.scatter(df.index, df[col], **styling.to_dict())
 
     return p
 
 
+"""
+Add a line to a plot.
+
+:param p: the plot to add the line to
+:param df: the dataframe to plot (index should be datetime), all columns are plotted
+:param styling: the styling used for all columns, or a list of stylings for each column
+:param kwargs: additional arguments to pass to the line
+"""
 def add_overlay_indicator_to_plot(p: figure,
                                   df: pd.DataFrame,
-                                  styling: Styling,
+                                  styling: Styling | ListStyling,
                                   **kwargs) -> figure:
     print("adding overlay indicator", df.info)
+    print("styling", styling)
 
-    for i, col in enumerate(df.columns):
-        print("adding line", col)
-        p.line(x=df.index, y=df[col], **styling.to_dict())
-    return p
+    
+    if isinstance(styling, ListStyling):
+        for i, col in enumerate(df.columns):
+            p.line(x=df.index, y=df[col], **styling.styles[i].to_dict())
+        return p
+    if isinstance(styling, Styling):
+        for i, col in enumerate(df.columns):
+            print("adding line", col)
+            p.line(x=df.index, y=df[col], **styling.to_dict())
+        return p
 
+    raise ValueError("unknown styling type")
 
 def add_position_orderfills_to_plot(p: figure, fills: list[OrderFilled]):
     df = pd.DataFrame([o.to_dict() for o in fills])

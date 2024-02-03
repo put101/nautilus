@@ -1,4 +1,5 @@
 import datetime
+import threading
 from builtins import bool
 from dataclasses import field
 from datetime import timedelta
@@ -26,7 +27,7 @@ from nautilus_trader.model.position import Position
 from nautilus_trader.portfolio import Portfolio
 from nautilus_trader.trading import Strategy
 from nautilus_trader.trading.strategy import StrategyConfig
-from nautilus_trader.indicators.atr import  AverageTrueRange
+from nautilus_trader.indicators.atr import AverageTrueRange
 from nautilus_trader.core.datetime import dt_to_unix_nanos, maybe_unix_nanos_to_dt, unix_nanos_to_dt
 
 
@@ -35,6 +36,7 @@ import put101.vizz as vizz
 from put101.indicators import TrackerMulti
 
 percent: TypeAlias = float
+
 
 class BollingerClusterConfig(StrategyConfig):
     instrument_id: str
@@ -45,12 +47,12 @@ class BollingerClusterConfig(StrategyConfig):
     ]]
 
     USE_TRADING_HOURS: bool = True
-    TRADING_SESSIONS: list[tuple[int, int]] = field(default_factory=lambda: [(0, 24)])
+    TRADING_SESSIONS: list[tuple[int, int]] = field(
+        default_factory=lambda: [(0, 24)])
     PARTIAL_RATIO: float | None = None
 
     emulation_trigger: str = "NO_TRIGGER"
     manage_contingent_orders = True
-
 
 
 class BollingerCluster(Strategy):
@@ -61,6 +63,8 @@ class BollingerCluster(Strategy):
         self.use_debugstop = False
         self.myconfig = config
         self.bar_type: BarType = BarType.from_str(config.bar_type)
+        self.app = None
+        self.app_thread: threading.Thread = None
 
         self.bands: list[BollingerBands] = [BollingerBands(
             period, std) for period, std in self.myconfig.bb_params]
@@ -69,7 +73,6 @@ class BollingerCluster(Strategy):
         self.extra_trackers: list[TrackerMulti] = []
         self.extra_styles: list[vizz.LineIndicatorStyle] = []
         self.indicators: list[Indicator] = []
-        
 
         self.instrument_id: InstrumentId = InstrumentId.from_str(
             config.instrument_id)
@@ -78,48 +81,53 @@ class BollingerCluster(Strategy):
 
         # PORTFOLIO TRACKING
         self.portfolio_tracker: TrackerMulti = TrackerMulti(
-            sub_indicator=utils.PortfolioIndicator(lambda: self.portfolio, self.venue),
+            sub_indicator=utils.PortfolioIndicator(
+                lambda: self.portfolio, self.venue),
             value_getters={"balance": lambda x: x.balance,
                            "equity": lambda x: x.equity,
-                           #"margin_pct": lambda x: x.margin_pct,
+                           # "margin_pct": lambda x: x.margin_pct,
                            })
         self.indicators.append(self.portfolio_tracker)
 
-
         bollinger_getters = {
-                "lower": lambda x: x.lower,
-                "middle": lambda x: x.middle,
-                "upper": lambda x: x.upper
+            "lower": lambda x: x.lower,
+            "middle": lambda x: x.middle,
+            "upper": lambda x: x.upper
         }
 
         for b in self.bands:
-            self.overlay_trackers.append(TrackerMulti(b, value_getters=bollinger_getters))
-            self.overlay_styles.append(vizz.LineIndicatorStyle("blue",0.5,2))
+            self.overlay_trackers.append(TrackerMulti(
+                b, value_getters=bollinger_getters))
+            self.overlay_styles.append(vizz.LineIndicatorStyle("blue", 0.5, 2))
 
         from nautilus_trader.indicators.average.ma_factory import MovingAverageFactory, MovingAverageType
         ma_getters = {
             "ma": lambda x: x.value
         }
 
-        self.ema_slow = MovingAverageFactory.create(50, MovingAverageType.EXPONENTIAL)
-        self.overlay_trackers.append(TrackerMulti(self.ema_slow, value_getters=ma_getters))
+        self.ema_slow = MovingAverageFactory.create(
+            50, MovingAverageType.EXPONENTIAL)
+        self.overlay_trackers.append(TrackerMulti(
+            self.ema_slow, value_getters=ma_getters))
         self.overlay_styles.append(vizz.LineIndicatorStyle("black", 0.5, 2))
 
-        self.ema_fast = MovingAverageFactory.create(30, MovingAverageType.EXPONENTIAL)
-        self.overlay_trackers.append(TrackerMulti(self.ema_fast, value_getters=ma_getters))
+        self.ema_fast = MovingAverageFactory.create(
+            30, MovingAverageType.EXPONENTIAL)
+        self.overlay_trackers.append(TrackerMulti(
+            self.ema_fast, value_getters=ma_getters))
         self.overlay_styles.append(vizz.LineIndicatorStyle("red", 0.5, 2))
 
         self.atr = AverageTrueRange(7)
-        self.atr_tracker = TrackerMulti(self.atr, value_getters={"atr": lambda x: x.value})
+        self.atr_tracker = TrackerMulti(self.atr, value_getters={
+                                        "atr": lambda x: x.value})
         self.indicators.append(self.atr_tracker)
 
         for i in [
-            RelativeStrengthIndex(14)]:
-            self.extra_trackers.append(TrackerMulti(i, value_getters={"value": lambda x: x.value}))
-            self.extra_styles.append(vizz.LineIndicatorStyle("green",0.5,2))
+                RelativeStrengthIndex(14)]:
+            self.extra_trackers.append(TrackerMulti(
+                i, value_getters={"value": lambda x: x.value}))
+            self.extra_styles.append(vizz.LineIndicatorStyle("green", 0.5, 2))
         self.indicators.extend(self.extra_trackers)
-
-
 
         self.indicators.extend(self.overlay_trackers)
 
@@ -137,14 +145,15 @@ class BollingerCluster(Strategy):
 
         self.manage_positions = []
 
-
     def get_main_plottable_indicators(self) -> tuple[list[TrackerMulti], list[vizz.LineIndicatorStyle]]:
         return (self.overlay_trackers, self.overlay_styles)
 
     def get_extra_plots(self) -> list[tuple[list[TrackerMulti], list[vizz.LineIndicatorStyle]]]:
-        return [(vizz.PlotConfig(title="Portfolio Tracker"), [self.portfolio_tracker], [vizz.LineIndicatorStyle("blue", 0.5, 2)]),
-                (vizz.PlotConfig(title="Extra Trackers"), self.extra_trackers, self.extra_styles),
-                (vizz.PlotConfig(title=f"ATR {self.atr.period}"), [self.atr_tracker], [vizz.LineIndicatorStyle("green", 0.5, 2)]),
+        return [(vizz.PlotConfig(title="Portfolio Tracker"), [self.portfolio_tracker], [vizz.ListStyling([vizz.LineIndicatorStyle("blue", 0.5, 2), vizz.LineIndicatorStyle("green", 0.5, 2)])]),
+                (vizz.PlotConfig(title="Extra Trackers"),
+                 self.extra_trackers, self.extra_styles),
+                (vizz.PlotConfig(title=f"ATR {self.atr.period}"), [
+                 self.atr_tracker], [vizz.LineIndicatorStyle("green", 0.5, 2)]),
                 ]
 
     @property
@@ -163,17 +172,25 @@ class BollingerCluster(Strategy):
         self.log.info("starting strategy")
         self.subscribe_bars(self.bar_type)
         self.log.info("started strategy")
-        pass
+
+        self.log.info("adding dash app")
+        from orbit import app
+        self.app = app
+        self.log.info("added dash app")
+
+        self.log.info("starting dash app")
+        self.app_thread = threading.Thread(
+            target=lambda: self.app.run(debug=True))
+        self.app_thread.start()
+        self.log.info("started dash app")
 
     def on_event(self, event: Event):
 
         if isinstance(event, OrderEvent):
             self.log.info(f"OrderEvent: {event}")
 
-
         if isinstance(event, PositionEvent):
             self.log.info(f"PositionEvent: {event}")
-
 
         return
 
@@ -194,7 +211,8 @@ class BollingerCluster(Strategy):
 
         for indicator in self.indicators:
             if not indicator.initialized:
-                self.log.debug("indicator not initialized, skipping bar processing: " + str(indicator))
+                self.log.debug(
+                    "indicator not initialized, skipping bar processing: " + str(indicator))
                 return
 
         self.processed_bars.append(bar)
@@ -210,7 +228,6 @@ class BollingerCluster(Strategy):
         order_factory: OrderFactory = self.order_factory
         is_flat: bool = portfolio.is_flat(self.instrument_id)
 
-
         self.max_dd = 0.02
         self.max_profit = 0.02
 
@@ -223,16 +240,19 @@ class BollingerCluster(Strategy):
             cur_max_dd = balance.total.as_double() * self.max_dd
             min_pnl = -abs(cur_max_dd)
             if pnl and pnl.as_double() < min_pnl:
-                self.log.error(f"Max DD reached: {pnl.as_double()} < {min_pnl}, closing all positions")
+                self.log.error(
+                    f"Max DD reached: {pnl.as_double()} < {min_pnl}, closing all positions")
                 self.close_all_positions(self.instrument_id)
 
             cur_max_profit = balance.total.as_double() * self.max_profit
             max_pnl = abs(cur_max_profit)
             if pnl and pnl.as_double() > max_pnl:
                 if not self.config.PARTIAL_RATIO:
-                    self.log.warn(f"cannot close partials, no PARTIAL_RATIO set")
-                self.log.error(f"Max PNL reached: {pnl.as_double()} > {max_pnl}, closing partial positions")
-                #self.close_all_positions(self.instrument_id)
+                    self.log.warn(
+                        f"cannot close partials, no PARTIAL_RATIO set")
+                self.log.error(
+                    f"Max PNL reached: {pnl.as_double()} > {max_pnl}, closing partial positions")
+                # self.close_all_positions(self.instrument_id)
                 positions_open: list[Position] = self.cache.positions_open(
                     venue=None,  # Faster query filtering
                     instrument_id=self.instrument_id,
@@ -256,15 +276,13 @@ class BollingerCluster(Strategy):
         SL_POINTS = ATR_SL_FACTOR * (self.atr.value / POINT_SIZE)
         SL_POINTS = max(SL_POINTS, MIN_SL_POINTS)
 
-
         TP_POINTS = SL_POINTS * TP_FACTOR
-        
+
         RISK_PER_TRADE = self.max_dd / 2
 
         RISK = RISK_PER_TRADE * balance_total
 
-
-        #self.log.info("last tick: " + str(cache.quote_ticks(self.instrument_id)[-1]))
+        # self.log.info("last tick: " + str(cache.quote_ticks(self.instrument_id)[-1]))
 
         qty = utils.RiskCalculator.qty_from_risk(entry=bar.close.as_double(),
                                                  exit=bar.close.as_double() + SL_POINTS * float(self.instrument.price_increment),
@@ -274,9 +292,7 @@ class BollingerCluster(Strategy):
         buy_signal = False
         sell_signal = False
 
-
         # SIGNAL COMPOSITION
-
 
         ts = maybe_unix_nanos_to_dt(bar.ts_event)
 
@@ -296,8 +312,6 @@ class BollingerCluster(Strategy):
         if down_trend and self.bands[0].upper < bar.close.as_double():
             sell_signal = True
 
-
-
         # SIGNAL EXECUTION
 
         if is_flat:
@@ -308,7 +322,6 @@ class BollingerCluster(Strategy):
             if sell_signal:
                 self.sell(bar.close.as_double(), bar.close.as_double(
                 ) + SL_POINTS*POINT_SIZE, bar.close.as_double() - TP_POINTS*POINT_SIZE, qty)
-
 
         pass
 
@@ -374,7 +387,8 @@ class BollingerCluster(Strategy):
         """
 
         if position.is_closed:
-            self.log.error(f"Cannot partially close position (the position is already closed), {position}.")
+            self.log.error(
+                f"Cannot partially close position (the position is already closed), {position}.")
             return
 
         if partial_quantity >= position.quantity or partial_quantity <= 0:
@@ -401,5 +415,3 @@ class BollingerCluster(Strategy):
 
         # Submit the order (assuming you have a method like this)
         self.submit_order(order, position_id=position.id,  client_id=client_id)
-
-                
