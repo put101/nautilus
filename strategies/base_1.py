@@ -199,11 +199,6 @@ class PUT101Strategy(Strategy):
 
         self.subscribe_bars(self.bar_type)
 
-        # self.log.info("dash app thread: starting...")
-        # self.app_thread = threading.Thread(target=lambda: self.app.run(), daemon=True)
-        # self.app_thread.start()
-        # self.log.info("dash app thread: started")
-
     def on_order_event(self, event: OrderEvent):
         print("OrderEvent: " + str(event))
         self.trade_manager.on_order_event(event)
@@ -228,39 +223,6 @@ class PUT101Strategy(Strategy):
         if self.base_config.IGNORE_SINGLE_PRICE_BARS and bar.is_single_price():
             return False
 
-        # influx
-        if write_price_data:
-            # measure time it takes to write to influxdb
-
-            time = datetime.datetime.now()
-
-            balance_point = (
-                Point(str(bar.bar_type))
-                .tag("bar_value", "close")
-                .tag("strategy_id", "TEST-ID")
-                .field("value", bar.close.as_double())
-                .time(bar.ts_event, WritePrecision.NS)
-            )
-            equity_point = (
-                Point(str(bar.bar_type))
-                .tag("bar_value", "open")
-                .tag("strategy_id", "TEST-ID")
-                .field("value", bar.open.as_double())
-                .time(bar.ts_event, WritePrecision.NS)
-            )
-
-            self.log.debug(f"writing to influx: {balance_point}, {equity_point}")
-            try:
-                self.write_api.write(
-                    bucket=bucket,
-                    record=[balance_point, equity_point],
-                )
-            except InfluxDBError as e:
-                self.log.error(f"Error writing to influx: {e}")
-                self.abort("Aborting because Error writing to influx")
-
-            self.log.debug(f"writing to influx took: {datetime.datetime.now() - time}")
-
         # update indicators
         for indicator in self.indicators:
             indicator.handle_bar(bar)
@@ -276,6 +238,42 @@ class PUT101Strategy(Strategy):
             self.all_indicators_ready = True
 
         self.processed_bars.append(bar)
+
+        # influx
+        if write_price_data:
+            # measure time it takes to write to influxdb
+
+            time = datetime.datetime.now()
+
+            price_point = (
+                Point(str(bar.bar_type))
+                .tag("strategy_id", "TEST-ID")
+                .field("close", bar.close.as_double())
+                .field("open", bar.open.as_double())
+                .field("high", bar.high.as_double())
+                .field("low", bar.low.as_double())
+                .time(bar.ts_event, WritePrecision.NS)
+            )
+
+            portfolio_point = (
+                Point("portfolio")
+                .tag("strategy_id", "TEST-ID")
+                .field("balance", self.portfolio_tracker.sub_indicator.balance)
+                .field("equity", self.portfolio_tracker.sub_indicator.equity)
+                .time(bar.ts_event, WritePrecision.NS)
+            )
+
+            self.log.debug(f"writing to influx: {price_point}, {portfolio_point}")
+            try:
+                self.write_api.write(
+                    bucket=bucket,
+                    record=[price_point, portfolio_point],
+                )
+            except InfluxDBError as e:
+                self.log.error(f"Error writing to influx: {e}")
+                self.abort("Aborting because Error writing to influx")
+
+            self.log.debug(f"writing to influx took: {datetime.datetime.now() - time}")
 
     def abort(self, msg):
         """
