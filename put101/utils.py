@@ -4,9 +4,18 @@ from enum import Enum
 import pandas as pd
 from nautilus_trader.accounting.accounts.base import Account
 from nautilus_trader.accounting.accounts.margin import MarginAccount
-from nautilus_trader.config.backtest import BacktestRunConfig, BacktestEngineConfig, BacktestVenueConfig
+from nautilus_trader.config import (
+    BacktestRunConfig,
+    BacktestEngineConfig,
+    BacktestVenueConfig,
+)
 from nautilus_trader.core.datetime import maybe_unix_nanos_to_dt
-from nautilus_trader.core.rust.model import PositionSide, OrderSide, TimeInForce, OrderType
+from nautilus_trader.core.rust.model import (
+    PositionSide,
+    OrderSide,
+    TimeInForce,
+    OrderType,
+)
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.objects import Currency, Money, Quantity
 from nautilus_trader.model.orders import OrderList
@@ -17,6 +26,7 @@ from nautilus_trader.indicators.base.indicator import Indicator
 
 from bokeh.layouts import layout, column, row
 from bokeh.plotting import figure
+
 # others
 from datetime import timedelta
 import matplotlib.pyplot as plt
@@ -42,13 +52,14 @@ def in_session_hours(sessions: list[tuple[int, int]], ts: pd.Timestamp):
 
 class RiskCalculator:
     @staticmethod
-    def qty_from_risk(risk: float, entry: float, exit: float, ins: Instrument) -> Quantity:
+    def qty_from_risk(
+        risk: float, entry: float, exit: float, ins: Instrument
+    ) -> Quantity:
         risk_points = abs(entry - exit) / ins.price_increment
         point_value_per_unit = float(ins.price_increment) * float(ins.lot_size)
         lots = (risk / risk_points) * (1 / point_value_per_unit)
         qty = lots * ins.lot_size
         return ins.make_qty(qty)
-        
 
 
 def get_configs():
@@ -75,7 +86,6 @@ class PortfolioIndicator(Indicator):
     def has_inputs(self):
         return self.portfolio_getter().unrealized_pnls(self.venue) is not None
 
-
     def handle_bar(self, bar: Bar):
         p: Portfolio = self.portfolio_getter()
         a: Account = p.account(self.venue)
@@ -86,7 +96,9 @@ class PortfolioIndicator(Indicator):
 
         # unrealized pnl
         unreal_pnl_dict = p.unrealized_pnls(self.venue)
-        self.unrealized_pnl = unreal_pnl_dict.get(a_currency, Money(0, a_currency)).as_double()
+        self.unrealized_pnl = unreal_pnl_dict.get(
+            a_currency, Money(0, a_currency)
+        ).as_double()
         # equity
         self.equity = self.balance + self.unrealized_pnl
 
@@ -107,13 +119,15 @@ class PortfolioIndicator(Indicator):
             self.margin_pct = 0
 
 
-def get_layout(res: BacktestResult,
-               script_name: str,
-               bars: list[Bar],
-               overlay_indicators: list[TrackerMulti],
-               overlay_indicator_styles: list[Styling],
-               extra_plots: list[tuple[list[TrackerMulti], list[Styling]]],
-               positions: list[Position]):
+def get_layout(
+    res: BacktestResult,
+    script_name: str,
+    bars: list[Bar],
+    overlay_indicators: list[TrackerMulti],
+    overlay_indicator_styles: list[Styling],
+    extra_plots: list[tuple[list[TrackerMulti], list[Styling]]],
+    positions: list[Position],
+):
 
     # add all wheel zoom
     tools = "pan,xwheel_zoom,ywheel_zoom,wheel_zoom,box_zoom,reset,save"
@@ -121,11 +135,13 @@ def get_layout(res: BacktestResult,
     WIDTH = 1000
     HEIGHT = 600
 
-    main_plot = figure(x_axis_type="datetime",
-                       tools=tools,
-                       width=WIDTH,
-                       height=HEIGHT,
-                       title=f"{script_name}: Backtest {res.run_config_id}")
+    main_plot = figure(
+        x_axis_type="datetime",
+        tools=tools,
+        width=WIDTH,
+        height=HEIGHT,
+        title=f"{script_name}: Backtest {res.run_config_id}",
+    )
 
     main_plot = vizz.add_bars_to_plot(main_plot, bars)
     main_plot = vizz.add_positions_to_plot(main_plot, positions)
@@ -135,8 +151,14 @@ def get_layout(res: BacktestResult,
 
     sub_plots = []
     for p_conf, trackers, styles in extra_plots:
-        sub_plot = figure(x_axis_type="datetime", x_range=main_plot.x_range, tools=tools, width=WIDTH, height=200,
-                          title=f"{p_conf.title}")
+        sub_plot = figure(
+            x_axis_type="datetime",
+            x_range=main_plot.x_range,
+            tools=tools,
+            width=WIDTH,
+            height=200,
+            title=f"{p_conf.title}",
+        )
         for t, s in zip(trackers, styles):
             sub_plot = vizz.add_overlay_indicator_to_plot(sub_plot, t.get_df(), s)
             sub_plots.append(sub_plot)
@@ -167,34 +189,36 @@ def remove_weekends(df):
     return df[df.index.dayofweek < 5]
 
 
-
 def df_from_multitracker(tracker: TrackerMulti):
-    df = pd.DataFrame(data={
-        'date': [maybe_unix_nanos_to_dt(ts) for ts in tracker.timestamps],
-    })
+    df = pd.DataFrame(
+        data={
+            "date": [maybe_unix_nanos_to_dt(ts) for ts in tracker.timestamps],
+        }
+    )
     for name, values in tracker.values.items():
         df[name] = values
-    df.set_index('date', inplace=True)
+    df.set_index("date", inplace=True)
     return df
 
 
 def df_from_bars(bars: list[Bar]):
     # bars to pandas dataframe
-    df = pd.DataFrame(data={
-        'date': [maybe_unix_nanos_to_dt(b.ts_event) for b in bars],
-        'open': [b.open.as_double() for b in bars],
-        'high': [b.high.as_double() for b in bars],
-        'low': [b.low.as_double() for b in bars],
-        'close': [b.close.as_double() for b in bars],
-        'volume': [b.volume.as_double() for b in bars],
-    })
+    df = pd.DataFrame(
+        data={
+            "date": [maybe_unix_nanos_to_dt(b.ts_event) for b in bars],
+            "open": [b.open.as_double() for b in bars],
+            "high": [b.high.as_double() for b in bars],
+            "low": [b.low.as_double() for b in bars],
+            "close": [b.close.as_double() for b in bars],
+            "volume": [b.volume.as_double() for b in bars],
+        }
+    )
 
     # df['date'] = pd.to_datetime(df['date'])
-    df.set_index('date', inplace=True)
+    df.set_index("date", inplace=True)
 
     # Filter out weekends
     # df = remove_weekends(df)
 
     # draw
     return df
-

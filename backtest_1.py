@@ -12,10 +12,8 @@ import dotenv
 import os
 
 dotenv.load_dotenv(".env")
-MT5_SERVER = os.environ["MT5_SERVER"]
-MT5_LOGIN = os.environ["MT5_LOGIN"]
-MT5_PASSWORD = os.environ["MT5_PASSWORD"]
-DATA_PATH = os.environ["DATA_PATH"]
+
+# DATA_PATH = os.environ["DATA_PATH"]
 CATALOG_PATH = os.path.join(os.getcwd(), os.environ["CATALOG_PATH"])
 
 # nautilus_trader imports
@@ -47,7 +45,6 @@ import decimal
 # other imports
 from pandas import Timestamp
 import importlib
-import mplfinance as mpf
 import matplotlib.pyplot as plt
 
 # my packages
