@@ -60,9 +60,11 @@ class LineIndicatorStyle(Styling):
         d = {
             "color": self.color,
             "alpha": self.alpha,
-            "line_width": self.line_width
+            "line_width": self.line_width,
+            **  self.kwargs
         }
-        d += self.kwargs
+        # add kwargs
+        
         return d
 
 
@@ -88,8 +90,8 @@ def add_overlay_indicator_to_plot(p: figure,
                                   df: pd.DataFrame,
                                   styling: Styling | ListStyling,
                                   **kwargs) -> figure:
-    print("adding overlay indicator", df.info)
-    print("styling", styling)
+    #print("adding overlay indicator", df.info)
+    #print("styling", styling)
 
     
     if isinstance(styling, ListStyling):
@@ -98,7 +100,7 @@ def add_overlay_indicator_to_plot(p: figure,
         return p
     if isinstance(styling, Styling):
         for i, col in enumerate(df.columns):
-            print("adding line", col)
+            ##print("adding line", col)
             p.line(x=df.index, y=df[col], **styling.to_dict())
         return p
 
@@ -126,7 +128,7 @@ def add_position_orderfills_to_plot(p: figure, fills: list[OrderFilled]):
 
 def add_positions_to_plot(p, positions: list[Position]):
     if not positions or len(positions) == 0:
-        print("No positions to plot.")
+        ##print("No positions to plot.")
         return p
 
     df = pd.DataFrame([p.to_dict() for p in positions])

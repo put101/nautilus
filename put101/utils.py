@@ -107,7 +107,9 @@ class PortfolioIndicator(Indicator):
             self.margin_pct = 0
 
 
-def get_layout(res: BacktestResult, bars: list[Bar],
+def get_layout(res: BacktestResult,
+               script_name: str,
+               bars: list[Bar],
                overlay_indicators: list[TrackerMulti],
                overlay_indicator_styles: list[Styling],
                extra_plots: list[tuple[list[TrackerMulti], list[Styling]]],
@@ -123,7 +125,7 @@ def get_layout(res: BacktestResult, bars: list[Bar],
                        tools=tools,
                        width=WIDTH,
                        height=HEIGHT,
-                       title=f"Backtest {res.run_config_id}")
+                       title=f"{script_name}: Backtest {res.run_config_id}")
 
     main_plot = vizz.add_bars_to_plot(main_plot, bars)
     main_plot = vizz.add_positions_to_plot(main_plot, positions)

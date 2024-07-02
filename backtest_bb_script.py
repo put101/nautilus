@@ -21,7 +21,7 @@ from nautilus_trader.model.position import Position
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.identifiers import Venue, InstrumentId, Symbol
 from nautilus_trader.model.data import Bar, BarType, QuoteTick
-from nautilus_trader.config import BacktestVenueConfig, BacktestDataConfig, BacktestRunConfig, BacktestEngineConfig
+from nautilus_trader.config import BacktestVenueConfig, BacktestDataConfig, BacktestRunConfig, BacktestEngineConfig, RiskEngineConfig
 from nautilus_trader.backtest.node import BacktestNode
 from nautilus_trader.backtest.engine import BacktestResult
 from nautilus_trader.trading.strategy import ImportableStrategyConfig
@@ -41,20 +41,22 @@ import matplotlib.pyplot as plt
 from put101 import indicators
 import strategies
 from strategies import bollinger_cluster
+from strategies import base
 from put101 import utils
 from put101 import vizz
 
 # ---------------- CONFIGURATION ----------------
 catalog = ParquetDataCatalog(CATALOG_PATH)
-start = dt_to_unix_nanos(pd.Timestamp("2022-01-01 00:00:00"))
-
-end = start + pd.Timedelta(days=180).value
+start = dt_to_unix_nanos(pd.Timestamp("2023-04-01 00:00:00"))
+end = start + pd.Timedelta(days=90).value
 
 venue_str = "SIM_EIGHTCAP"
 venue = Venue(venue_str)
 symbol_str = "EURUSD"
 symbol = Symbol(symbol_str)
 instrument_id_str = f"EURUSD.{venue}"
+
+script_name = os.path.basename(__file__).split(".")[0]
 
 instrument_id = InstrumentId(symbol, venue)
 
@@ -85,8 +87,10 @@ strategies = [
         strategy_path="strategies.bollinger_cluster:BollingerCluster",
         config_path="strategies.bollinger_cluster:BollingerClusterConfig",
         config=dict(
-            instrument_id=instrument_id.value,
-            bar_type=f"{instrument_id}-15-MINUTE-BID-INTERNAL",
+            base_config=base.PUT101StrategyConfig(
+                instrument_id=instrument_id.value,
+                bar_type=f"{instrument_id}-15-MINUTE-BID-INTERNAL",
+            ),
             bb_params=[
                 (20, 2),
             ],
@@ -100,13 +104,16 @@ strategies = [
 configs = [BacktestRunConfig(
     engine=BacktestEngineConfig(
         strategies=strategies,
+        logging=LoggingConfig(log_level="ERROR"),
+        risk_engine=RiskEngineConfig(
+            bypass=True,  # Example of bypassing pre-trade risk checks for backtests
+        ),
     ),
     data=data_configs,
     venues=venue_configs,
 )]
 
 node = BacktestNode(configs)
-print(strategies)
 
 # %%
 results = node.run()
@@ -126,12 +133,13 @@ main_t, main_s = strategy.get_main_plottable_indicators()
 extra_plots = strategy.get_extra_plots()
 
 layout = utils.get_layout(
-                    res=res,
-                    bars=strategy.bars,
-                    overlay_indicators=main_t,
-                    overlay_indicator_styles=main_s,
-                    extra_plots=extra_plots,
-                    positions=strategy.cache.positions(),
+    res=res,
+    script_name=script_name,
+    bars=strategy.bars,
+    overlay_indicators=main_t,
+    overlay_indicator_styles=main_s,
+    extra_plots=extra_plots,
+    positions=strategy.cache.positions(),
 )
 
 vizz.reset_output()
