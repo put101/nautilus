@@ -66,11 +66,13 @@ from put101.indicators import TrackerMulti
 from put101.vizz import PlotConfig, ListStyling, LineIndicatorStyle
 
 # time series persistence and analysis
-from influxdb_client import InfluxDBClient, Point, WritePrecision
-from influxdb_client.client.write_api import ASYNCHRONOUS, SYNCHRONOUS
+from influxdb_client import InfluxDBClient, Point, WritePrecision, WriteOptions
+from influxdb_client.client.write_api import SYNCHRONOUS
 from influxdb_client.client.exceptions import InfluxDBError
 
-bucket = "main"
+bucket = "nautilus"
+write_price_data = True
+
 
 class PUT101StrategyConfig(StrategyConfig):
     instrument_id: str
@@ -129,6 +131,7 @@ class PUT101Strategy(Strategy):
         self.client = None
         self.write_api = None
         self.callback = None
+
     def get_main_plottable_indicators(
         self,
     ) -> tuple[list[TrackerMulti], list[vizz.LineIndicatorStyle]]:
@@ -166,7 +169,9 @@ class PUT101Strategy(Strategy):
         self.log.error(f"Cannot write batch: {conf}, data: {data} due: {exception}")
 
     def influx_retry(self, conf: (str, str, str), data: str, exception: InfluxDBError):
-        self.log.error(f"Retryable error occurs for batch: {conf}, data: {data} retry: {exception}")
+        self.log.error(
+            f"Retryable error occurs for batch: {conf}, data: {data} retry: {exception}"
+        )
 
     def on_start(self):
 
@@ -175,7 +180,15 @@ class PUT101Strategy(Strategy):
         self.client = InfluxDBClient(
             url="http://localhost:8086", token=os.environ["INFLUX_TOKEN"], org="main"
         )
-        self.write_api = self.client.write_api(write_options=SYNCHRONOUS)
+        self.write_api = self.client.write_api(
+            write_options=WriteOptions(
+                batch_size=1000,
+                flush_interval=1000,
+            ),
+            success_callback=self.influx_success,
+            error_callback=self.influx_error,
+            retry_callback=self.influx_retry,
+        )
 
         self.instrument = self.cache.instrument(self.instrument_id)
 
@@ -190,7 +203,6 @@ class PUT101Strategy(Strategy):
         # self.app_thread = threading.Thread(target=lambda: self.app.run(), daemon=True)
         # self.app_thread.start()
         # self.log.info("dash app thread: started")
-
 
     def on_order_event(self, event: OrderEvent):
         print("OrderEvent: " + str(event))
@@ -217,30 +229,37 @@ class PUT101Strategy(Strategy):
             return False
 
         # influx
-        balance_point = (
-            Point(bar.bar_type)
-            .tag("bar_value", "close")
-            .tag("strategy_id", "TEST-ID")
-            .field("value", bar.close.as_double())
-            .time(bar.ts_event, WritePrecision.NS)
-        )
-        equity_point = (
-            Point(bar.bar_type)
-            .tag("bar_value", "open")
-            .tag("strategy_id", "TEST-ID")
-            .field("value", bar.open.as_double())
-            .time(bar.ts_event, WritePrecision.NS)
-        )
+        if write_price_data:
+            # measure time it takes to write to influxdb
 
-        self.log.debug(f"writing to influx: {balance_point}, {equity_point}")
-        try:
-            self.write_api.write(
-                bucket=bucket,
-                record=[balance_point, equity_point],
+            time = datetime.datetime.now()
+
+            balance_point = (
+                Point(str(bar.bar_type))
+                .tag("bar_value", "close")
+                .tag("strategy_id", "TEST-ID")
+                .field("value", bar.close.as_double())
+                .time(bar.ts_event, WritePrecision.NS)
             )
-        except InfluxDBError as e:
-            self.log.error(f"Error writing to influx: {e}")
-            self.abort("Aborting because Error writing to influx")
+            equity_point = (
+                Point(str(bar.bar_type))
+                .tag("bar_value", "open")
+                .tag("strategy_id", "TEST-ID")
+                .field("value", bar.open.as_double())
+                .time(bar.ts_event, WritePrecision.NS)
+            )
+
+            self.log.debug(f"writing to influx: {balance_point}, {equity_point}")
+            try:
+                self.write_api.write(
+                    bucket=bucket,
+                    record=[balance_point, equity_point],
+                )
+            except InfluxDBError as e:
+                self.log.error(f"Error writing to influx: {e}")
+                self.abort("Aborting because Error writing to influx")
+
+            self.log.debug(f"writing to influx took: {datetime.datetime.now() - time}")
 
         # update indicators
         for indicator in self.indicators:
@@ -258,7 +277,6 @@ class PUT101Strategy(Strategy):
 
         self.processed_bars.append(bar)
 
-
     def abort(self, msg):
         """
         abort the strategy with a reason
@@ -272,7 +290,10 @@ class PUT101Strategy(Strategy):
         self.log.info("stopping strategy")
 
         # stop the dash app
-        self.log.info("stopping dash app")
+        self.log.info("stopping influx api_writer and client gracefully")
+        self.write_api.flush()
+        self.write_api.close()
+        self.client.close()
 
         pass
 

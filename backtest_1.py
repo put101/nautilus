@@ -108,10 +108,11 @@ configs = [
             strategies=strategies,
             trader_id="BACKTESTER-001",
             logging=LoggingConfig(
-                log_level="ERROR",
+                log_level="INFO",
                 log_level_file="DEBUG",
                 log_directory="logs",
                 log_file_name=f"backtest_{Timestamp.now()}.log",
+                log_component_levels={"OrderMatchingEngine(SIM_EIGHTCAP)": "INFO"},
             ),
             risk_engine=RiskEngineConfig(
                 bypass=True,  # Example of bypassing pre-trade risk checks for backtests
