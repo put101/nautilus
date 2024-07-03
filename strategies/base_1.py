@@ -80,6 +80,7 @@ class PUT101StrategyConfig(StrategyConfig):
     emulation_trigger: str = "NO_TRIGGER"
     manage_contingent_orders = True
     IGNORE_SINGLE_PRICE_BARS: bool = True
+    environment: dict = field(default_factory=dict)
 
 
 class PUT101Strategy(Strategy):
@@ -175,11 +176,13 @@ class PUT101Strategy(Strategy):
 
     def on_start(self):
 
-        print("self.log", self.log)
-
         self.client = InfluxDBClient(
-            url="http://localhost:8086", token=os.environ["INFLUX_TOKEN"], org="main"
+            url="http://localhost:8086",
+            # token=self.base_config.environment["INFLUX_TOKEN"],
+            token=str(self.base_config.environment["INFLUX_TOKEN"]),
+            org=str(self.base_config.environment["INFLUX_ORG"]),
         )
+
         self.write_api = self.client.write_api(
             write_options=WriteOptions(
                 batch_size=1000,

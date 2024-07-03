@@ -1,4 +1,6 @@
 docker run \
+    --name influxdb \
+    --network main_network \
     -p 8086:8086 \
     -v "$PWD/data:/var/lib/influxdb2" \
     -v "$PWD/config:/etc/influxdb2" \

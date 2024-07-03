@@ -8,6 +8,8 @@ from typing import TypeAlias, List, Tuple
 from decimal import Decimal
 import pandas as pd
 
+import dotenv
+
 import enum
 from statemachine import StateMachine, State
 from statemachine.exceptions import TransitionNotAllowed
@@ -72,19 +74,21 @@ from influxdb_client.client.exceptions import InfluxDBError
 
 
 class PUT101StrategyConfig(StrategyConfig):
-    IDENTIFIER: str = None
-    bucket = "nautilus"
+    # strategy specific
+    bb_params: list[tuple[int, float]]  # period  # std
 
+    # general
     instrument_id: str
     bar_type: str
     emulation_trigger: str = "NO_TRIGGER"
     manage_contingent_orders = True
+    IGNORE_SINGLE_PRICE_BARS: bool = True
     # plotting, monitoring and statistics
     use_bokeh_plotting: bool = False
     write_price_data = True
     write_indicator_data = True
-
-    IGNORE_SINGLE_PRICE_BARS: bool = True
+    bucket = "nautilus"
+    IDENTIFIER: str = None
 
 
 class PUT101Strategy(Strategy):
@@ -97,6 +101,10 @@ class PUT101Strategy(Strategy):
         self.instrument_id: InstrumentId = InstrumentId.from_str(config.instrument_id)
         self.venue: Venue = self.instrument_id.venue
         self.emulation_trigger = TriggerType[config.emulation_trigger]
+
+        # other parameters
+        self.max_dd = 0.05
+        self.max_profit = 0.05
 
         # indicators
         self.all_indicators_ready = False
@@ -116,8 +124,25 @@ class PUT101Strategy(Strategy):
                 "equity": lambda x: x.equity,
             },
         )
-        self.indicators.append(self.portfolio_tracker)
 
+        # indicators
+        self.bands: list[BollingerBands] = [
+            BollingerBands(period, std) for period, std in self.conf.bb_params
+        ]
+
+        bollinger_getters = {
+            "lower": lambda x: x.lower,
+            "middle": lambda x: x.middle,
+            "upper": lambda x: x.upper,
+        }
+
+        for b in self.bands:
+            self.overlay_trackers.append(
+                TrackerMulti(b, value_getters=bollinger_getters)
+            )
+            self.overlay_styles.append(vizz.LineIndicatorStyle("blue", 0.5, 2))
+
+        self.indicators.append(self.portfolio_tracker)
         self.indicators.extend(self.extra_trackers)
         self.indicators.extend(self.overlay_trackers)
 
@@ -175,8 +200,7 @@ class PUT101Strategy(Strategy):
         )
 
     def on_start(self):
-
-        print("self.log", self.log)
+        self.log.info("ON_START")
 
         self.client = InfluxDBClient(
             url="http://localhost:8086", token=os.environ["INFLUX_TOKEN"], org="main"
@@ -185,6 +209,7 @@ class PUT101Strategy(Strategy):
             write_options=WriteOptions(
                 batch_size=1000,
                 flush_interval=1000,
+                max_close_wait=5000,
             ),
             success_callback=self.influx_success,
             error_callback=self.influx_error,
@@ -201,16 +226,17 @@ class PUT101Strategy(Strategy):
         self.subscribe_bars(self.bar_type)
 
     def on_order_event(self, event: OrderEvent):
-        print("OrderEvent: " + str(event))
         self.trade_manager.on_order_event(event)
 
     def on_event(self, event: Event):
 
         if isinstance(event, OrderEvent):
-            self.log.info(f"OrderEvent: {event}")
+            # self.log.info(f"OrderEvent: {event}")
+            pass
 
         if isinstance(event, PositionEvent):
-            self.log.info(f"PositionEvent: {event}")
+            # self.log.info(f"PositionEvent: {event}")
+            pass
 
         return
 
@@ -240,7 +266,74 @@ class PUT101Strategy(Strategy):
 
         self.processed_bars.append(bar)
 
-        # influx
+        # TRADING LOGIC
+        cache: CacheFacade = self.cache
+        portfolio: Portfolio = self.portfolio
+        is_flat: bool = portfolio.is_flat(self.instrument_id)
+        account: Account = portfolio.account(self.venue)
+        balance: AccountBalance = account.balance(account.currencies()[0])
+        balance_total: float = balance.total.as_double()
+
+        if balance.total.as_double() < 10_000 * 0.70:
+            self.log.error("balance too low, stopping strategy")
+            self.stop()
+
+        POINT_SIZE = float(self.instrument.price_increment)
+        PIP_SIZE = 10 * POINT_SIZE
+
+        MIN_SL_POINTS = 20
+        ATR_SL_FACTOR = 1
+        TP_FACTOR = 10
+
+        SL_POINTS = ATR_SL_FACTOR * (50 / POINT_SIZE)
+        SL_POINTS = max(SL_POINTS, MIN_SL_POINTS)
+
+        TP_POINTS = SL_POINTS * TP_FACTOR
+
+        RISK_PER_TRADE = self.max_dd / 2
+        RISK = RISK_PER_TRADE * balance_total
+
+        qty = self.instrument.make_qty(100_000)
+
+        buy_signal = False
+        sell_signal = False
+        ts = maybe_unix_nanos_to_dt(bar.ts_event)
+
+        if self.bands[0].lower > bar.close.as_double():
+            buy_signal = True
+        if self.bands[0].upper < bar.close.as_double():
+            sell_signal = True
+
+        # self.log.info(
+        #    f"bar: {bar.ts_event}, {ts}, {bar.close.as_double()}, {buy_signal}, {sell_signal}"
+        # )
+
+        # SL_DIST = SL_POINTS * POINT_SIZE
+        SL_DIST = 0.00010
+        # TP_DIST = TP_POINTS * POINT_SIZE
+        TP_DIST = 0.00010
+
+        if is_flat:
+            if buy_signal:
+
+                self.log.info(f"qty: {qty}, SL_DIST: {SL_DIST}, TP_DIST: {TP_DIST}")
+                self.buy(
+                    bar.close.as_double(),
+                    bar.close.as_double() - SL_DIST,
+                    bar.close.as_double() + SL_DIST,
+                    qty,
+                )
+
+            if sell_signal:
+                self.log.info(f"SL_DIST: {SL_DIST}, TP_DIST: {TP_DIST}")
+                self.sell(
+                    bar.close.as_double(),
+                    bar.close.as_double() + SL_DIST,
+                    bar.close.as_double() - TP_DIST,
+                    qty,
+                )
+
+        # INFLUX
         if self.conf.write_price_data:
             # measure time it takes to write to influxdb
 
@@ -259,8 +352,13 @@ class PUT101Strategy(Strategy):
             portfolio_point = (
                 Point("portfolio")
                 .tag("strategy_id", self.conf.IDENTIFIER)
-                .field("balance", self.portfolio_tracker.sub_indicator.balance)
-                .field("equity", self.portfolio_tracker.sub_indicator.equity)
+                .field("balance", float(self.portfolio_tracker.sub_indicator.balance))
+                .field("equity", float(self.portfolio_tracker.sub_indicator.equity))
+                .field("margin", float(self.portfolio_tracker.sub_indicator.margin))
+                .field("positions_open_count", cache.positions_open_count())
+                .field("positions_total_count", cache.positions_total_count())
+                .field("orders_open_count", cache.orders_open_count())
+                .field("orders_total_count", cache.orders_total_count())
                 .time(bar.ts_event, WritePrecision.NS)
             )
 
@@ -290,8 +388,8 @@ class PUT101Strategy(Strategy):
 
         # stop the dash app
         self.log.info("stopping influx api_writer and client gracefully")
-        self.write_api.flush()
         self.write_api.close()
+
         self.client.close()
 
         pass
@@ -313,12 +411,11 @@ class PUT101Strategy(Strategy):
             entry_price=self.instrument.make_price(entry),
             entry_trigger_price=self.instrument.make_price(entry),
             sl_trigger_price=self.instrument.make_price(sl),
-            tp_price=self.instrument.make_price(tp),
-            entry_order_type=OrderType.MARKET_IF_TOUCHED,
+            tp_trigger_price=self.instrument.make_price(tp),
+            entry_order_type=OrderType.MARKET,
+            tp_order_type=OrderType.MARKET_IF_TOUCHED,
             emulation_trigger=self.emulation_trigger,
         )
-
-        self.log.info("ENTRY-SUBMIT: " + str(order_list.orders))
 
         self.submit_order_list(order_list)
 
@@ -333,12 +430,11 @@ class PUT101Strategy(Strategy):
             entry_price=self.instrument.make_price(entry),
             entry_trigger_price=self.instrument.make_price(entry),  # TODO
             sl_trigger_price=self.instrument.make_price(sl),
-            tp_price=self.instrument.make_price(tp),
-            entry_order_type=OrderType.MARKET_IF_TOUCHED,
+            tp_trigger_price=self.instrument.make_price(tp),
+            entry_order_type=OrderType.MARKET,
+            tp_order_type=OrderType.MARKET_IF_TOUCHED,
             emulation_trigger=self.emulation_trigger,
         )
-
-        self.log.info("ENTRY-SUBMIT: " + str(order_list.orders))
 
         self.submit_order_list(order_list)
 

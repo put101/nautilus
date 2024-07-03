@@ -11,10 +11,11 @@ import pandas as pd
 import dotenv
 import os
 
-dotenv.load_dotenv(".env")
+dotenv.load_dotenv(override=True)
 
 # DATA_PATH = os.environ["DATA_PATH"]
 CATALOG_PATH = os.path.join(os.getcwd(), os.environ["CATALOG_PATH"])
+
 
 # nautilus_trader imports
 
@@ -98,6 +99,7 @@ strategies = [
         config=dict(
             instrument_id=instrument_id.value,
             bar_type=f"{instrument_id}-15-MINUTE-BID-INTERNAL",
+            environment=os.environ.copy(),
         ),
     ),
 ]

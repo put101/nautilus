@@ -1,5 +1,5 @@
 # %%
-file_name = "backtest_1.ipynb"
+file_name = "backtest_2_6.ipynb"
 if file_name is None:
     file_name = __file__
 
@@ -61,7 +61,7 @@ from put101 import vizz
 catalog = ParquetDataCatalog(CATALOG_PATH)
 start = dt_to_unix_nanos(pd.Timestamp("2023-01-01 00:00:00"))
 
-end = start + pd.Timedelta(days=30).value
+end = start + pd.Timedelta(days=60).value
 
 venue_str = "SIM_EIGHTCAP"
 venue = Venue(venue_str)
@@ -103,8 +103,11 @@ strategies = [
         config_path="strategies.base_2:PUT101StrategyConfig",
         config=dict(
             instrument_id=instrument_id.value,
-            bar_type=f"{instrument_id}-15-MINUTE-BID-INTERNAL",
+            bar_type=f"{instrument_id}-5-MINUTE-BID-INTERNAL",
             IDENTIFIER=IDENTIFIER,
+            bb_params=[
+                (20, 2),
+            ],
         ),
     ),
 ]
@@ -117,9 +120,9 @@ configs = [
             logging=LoggingConfig(
                 log_level="INFO",
                 log_level_file="DEBUG",
+                log_file_format="json",
                 log_directory="logs",
                 log_file_name=f"backtest_{Timestamp.now()}.log",
-                log_component_levels={"OrderMatchingEngine(SIM_EIGHTCAP)": "INFO"},
             ),
             risk_engine=RiskEngineConfig(
                 bypass=True,  # Example of bypassing pre-trade risk checks for backtests
