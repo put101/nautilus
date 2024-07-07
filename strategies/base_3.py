@@ -452,39 +452,36 @@ class PUT101Strategy(Strategy):
         self.submit_order_list(order_list)
 
     def write_position(self, ts, position):
-        position_dict = position.to_dict()
-        position_data = {
-            "measurement": "positions",
+        position_data = position.to_dict()
+        point_data = {
+            "measurement": "position_data",
             "tags": {
-                "strategy_id": position_dict['strategy_id'],
-                "instrument_id": position_dict['instrument_id'],
-                "account_id": position_dict['account_id'],
-                "position_id": position_dict['position_id'],
-                "side": position_dict['side'],
-                "entry": position_dict['entry'],
-                "quote_currency": position_dict['quote_currency'],
-                "base_currency": position_dict['base_currency'],
-                "settlement_currency": position_dict['settlement_currency']
+                "position_id": position_data['position_id'],
+                "trader_id": position_data['trader_id'],
+                "strategy_id": position_data['strategy_id'],
+                "instrument_id": position_data['instrument_id'],
+                "account_id": position_data['account_id'],
+                "opening_order_id": position_data['opening_order_id'],
+                "closing_order_id": position_data['closing_order_id'],
+                "entry": position_data['entry'],
+                "side": position_data['side']
             },
-            "time": ts,
             "fields": {
-                "signed_qty": float(position_dict['signed_qty']),
-                "quantity": float(position_dict['quantity']),
-                "peak_qty": float(position_dict['peak_qty']),
-                "avg_px_open": float(position_dict['avg_px_open']),
-                "avg_px_close": float(position_dict['avg_px_close']) if position_dict['avg_px_close'] else None,
-                "realized_pnl": float(position_dict['realized_pnl'].replace(" USD", "")) if position_dict[
-                    'realized_pnl'] else None,
-                "realized_return": float(position_dict['realized_return']),
-                "is_open": position.is_open,
-                "ts_opened": int(position_dict['ts_opened']),
-                "ts_last": int(position_dict['ts_last']),
-                "ts_closed": int(position_dict['ts_closed']) if position_dict['ts_closed'] else None,
-                "duration_ns": int(position_dict['duration_ns']) if position_dict['duration_ns'] else None,
-                "commissions": position_dict['commissions']
-            }
+                "signed_qty": position_data['signed_qty'],
+                "quantity": float(position_data['quantity']),
+                "peak_qty": float(position_data['peak_qty']),
+                "avg_px_open": float(position_data['avg_px_open']),
+                "quote_currency": position_data['quote_currency'],
+                "base_currency": position_data['base_currency'],
+                "settlement_currency": position_data['settlement_currency'],
+                "total_commissions": total_commission(position),
+                "realized_return": float(position_data['realized_return']),
+                "realized_pnl": position_data['realized_pnl']
+            },
+            "time": ts
         }
-        self.client.write_points([position_data])
+
+        self.write_points([position_data])
 
     def close_partial_position(
         self,
@@ -546,6 +543,12 @@ class Trade(StateMachine):
     def __init__(self):
         super().__init__()
 
+
+def total_commission(pos: Position) -> float:
+    total_commissions = sum((commission for commission in pos.commissions()), Money(0, pos.base_currency))
+    print(f"Total commissions: {total_commissions}")
+
+    return float(total_commissions)
 
 # TODO: get rid of strategy dependency or find suited abstraction like a configuration class
 class SimpleTrade(Trade):
