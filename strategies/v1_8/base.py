@@ -67,6 +67,9 @@ import utils
 class PUT101StrategyConfig(StrategyConfig):
     # strategy specific
     bb_params: list[tuple[int, float]]  # period  # std
+    TP_PIPS:int
+    SL_PIPS:int
+    RR:int
 
     # general
     instrument_id: str
@@ -279,11 +282,11 @@ class PUT101Strategy(Strategy):
         #    f"bar: {bar.ts_event}, {ts}, {bar.close.as_double()}, {buy_signal}, {sell_signal}"
         # )
 
-        # SL_DIST = SL_POINTS * POINT_SIZE
-        SL_DIST = 20 * PIP_SIZE
-        # TP_DIST = TP_POINTS * POINT_SIZE
-        TP_DIST = 5 * PIP_SIZE
-
+        SL_DIST = self.conf.SL_PIPS * PIP_SIZE
+        if self.conf.RR != 0:
+            TP_DIST = SL_DIST * self.conf.RR
+        else:
+            TP_DIST = self.conf.TP_PIPS * PIP_SIZE
         n_trades = len(self.trade_manager.trades)
 
         if is_flat and n_trades == 0:

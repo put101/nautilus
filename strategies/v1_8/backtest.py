@@ -1,5 +1,5 @@
 # %%
-file_name = ("backtest_1707.ipynb")
+file_name = ("backtest_1805.ipynb")
 if file_name is None:
     file_name = __file__
 
@@ -63,7 +63,7 @@ import matplotlib.pyplot as plt
 catalog = ParquetDataCatalog(CATALOG_PATH)
 start = dt_to_unix_nanos(pd.Timestamp("2023-01-01 00:00:00"))
 
-end = start + pd.Timedelta(days=60).value
+end = start + pd.Timedelta(days=120).value
 
 venue_str = "SIM_EIGHTCAP"
 venue = Venue(venue_str)
@@ -103,8 +103,8 @@ data_configs = [
 
 strategies = [
     ImportableStrategyConfig(
-        strategy_path="strategies.v1_7.base:PUT101Strategy",
-        config_path="strategies.v1_7.base:PUT101StrategyConfig",
+        strategy_path="strategies.v1_8.base:PUT101Strategy",
+        config_path="strategies.v1_8.base:PUT101StrategyConfig",
         config=dict(
             environment=os.environ.copy(),
             instrument_id=instrument_id.value,
@@ -115,6 +115,9 @@ strategies = [
                 (25, 2),
                 (30, 2),
             ],
+            TP_PIPS=0,
+            SL_PIPS=10,
+            RR=0.5,
         ),
     ),
 ]
