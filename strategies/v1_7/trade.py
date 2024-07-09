@@ -135,7 +135,6 @@ class SimpleTrade(StateMachine):
         self.write_points([self.make_point(self.strategy.clock.utc_now(), event)])
 
 
-
     def on_order_event(self, event: OrderEvent):
         self.log.debug(f"SimpleTrade.on_order_event: {event}")
         if isinstance(event, OrderAccepted):
@@ -145,7 +144,7 @@ class SimpleTrade(StateMachine):
         elif isinstance(event, OrderRejected):
             self.on_order_rejected(event)
         else:
-            self.log.error(f"SimpleTrade.on_order_event: unknown event ")
+            self.log.error(f"SimpleTrade.on_order_event: unknown event: {event}")
 
     def on_position_event(self, event: PositionEvent):
         self.log.debug(f"SimpleTrade.on_position_event: {event}")

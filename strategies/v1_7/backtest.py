@@ -1,5 +1,5 @@
 # %%
-file_name = ("backtest_1704.ipynb")
+file_name = ("backtest_1707.ipynb")
 if file_name is None:
     file_name = __file__
 
@@ -15,7 +15,10 @@ import dotenv
 import os
 import pathlib
 
-PROJECT_ROOT = pathlib.Path('/Users/tobiaspucher/GitHub/nautilus')
+# reload environment
+PROJECT_ROOT = pathlib.Path(os.environ.get("NAUTILUS_PROJECT_ROOT"))
+if PROJECT_ROOT is None:
+    raise EnvironmentError("NAUTILUS_PROJECT_ROOT environment variable is not set.")
 
 dotenv.load_dotenv(PROJECT_ROOT / "docker" / ".env", override=True)
 
@@ -108,7 +111,9 @@ strategies = [
             bar_type=f"{instrument_id}-5-MINUTE-BID-INTERNAL",
             IDENTIFIER=IDENTIFIER,
             bb_params=[
-                (20, 2.5),
+                (20, 2),
+                (25, 2),
+                (30, 2),
             ],
         ),
     ),

@@ -195,8 +195,9 @@ class PUT101Strategy(Strategy):
         self.log.debug(f"OrderEvent: {event}")
         self.trade_manager.on_order_event(event)
 
-    def on_position_event(self, PositionEvent_event):
-        self.trade_manager.on_position_event(PositionEvent_event)
+    def on_position_event(self, event: PositionEvent):
+        self.write_points([self.make_point(event)])
+        self.trade_manager.on_position_event(event)
 
     def on_event(self, event: Event):
 
@@ -269,9 +270,9 @@ class PUT101Strategy(Strategy):
         sell_signal = False
         ts = maybe_unix_nanos_to_dt(bar.ts_event)
 
-        if self.bands[0].lower > bar.close.as_double():
+        if all(b.lower > bar.close.as_double() for b in self.bands):
             buy_signal = True
-        if self.bands[0].upper < bar.close.as_double():
+        if all(b.upper < bar.close.as_double() for b in self.bands):
             sell_signal = True
 
         # self.log.info(
@@ -339,7 +340,7 @@ class PUT101Strategy(Strategy):
             # write bollinger bands
             for b in self.bands:
                 point = (
-                    Point(f"bollinger")
+                    Point(f"indicator_bollinger")
                     .tag("strategy_id", self.conf.IDENTIFIER)
                     .tag("parameters", str(b))
                     .field("lower", b.lower)
@@ -348,6 +349,37 @@ class PUT101Strategy(Strategy):
                     .time(bar.ts_event, WritePrecision.NS)
                 )
                 self.write_points([point])
+
+    def make_point(self, event: PositionEvent):
+
+        event_type = type(event).__name__
+        json_body = {
+            "measurement": "position_events",
+            "tags": {
+                "trader_id": event.trader_id,
+                "strategy_id": self.conf.IDENTIFIER,
+                "instrument_id": event.instrument_id,
+                "position_id": event.position_id,
+            },
+            "time": event.ts_event,
+            "fields": {
+                "event_type": event_type,
+                "entry": str(event.entry),
+                "side": str(event.side),
+                "signed_qty": float(event.signed_qty),
+                "quantity": float(event.quantity),
+                "peak_qty": float(event.peak_qty),
+                "last_qty": float(event.last_qty),
+                "last_px": float(event.last_px),
+                "avg_px_open": float(event.avg_px_open),
+                "avg_px_close": event.avg_px_close if hasattr(event, 'avg_px_close') else None,
+                "realized_pnl": float(event.realized_pnl),
+                "unrealized_pnl": float(event.unrealized_pnl),
+            }
+        }
+
+        return json_body
+
 
     def write_points(self, points: list[Point]):
         try:
