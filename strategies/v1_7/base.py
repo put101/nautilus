@@ -86,7 +86,7 @@ class PUT101StrategyConfig(StrategyConfig):
 class PUT101Strategy(Strategy):
     def __init__(self, config: PUT101StrategyConfig):
         super().__init__(config)
-
+        self.log.debug('__init__ PUT101Strategy')
         # config basic parameters
         self.conf: PUT101StrategyConfig = config
         self.bar_type: BarType = BarType.from_str(config.bar_type)
@@ -142,13 +142,14 @@ class PUT101Strategy(Strategy):
         self.instrument: Instrument | None = None  # see on_start
         self.processed_bars: list[Bar] = []
 
-        self.trade_manager = TradeManager(self)
+        self.trade_manager = TradeManager(self, self.write_points)
 
         # Initialize the InfluxDB client
         self.client = None
         self.write_api = None
         self.callback = None
 
+        self.log.debug('__init__ PUT101Strategy done')
 
     def influx_success(self, conf: (str, str, str), data: str):
         #self.log.debug(f"influx_success: Written batch: {conf}, data: {data}")
@@ -278,9 +279,9 @@ class PUT101Strategy(Strategy):
         # )
 
         # SL_DIST = SL_POINTS * POINT_SIZE
-        SL_DIST = 0.00010
+        SL_DIST = 20 * PIP_SIZE
         # TP_DIST = TP_POINTS * POINT_SIZE
-        TP_DIST = 0.00010
+        TP_DIST = 5 * PIP_SIZE
 
         n_trades = len(self.trade_manager.trades)
 
@@ -290,13 +291,13 @@ class PUT101Strategy(Strategy):
                 self.trade_manager.buy(
                     bar.close.as_double(),
                     bar.close.as_double() - SL_DIST,
-                    bar.close.as_double() + SL_DIST,
+                    bar.close.as_double() + TP_DIST,
                     qty,
                 )
 
-            if sell_signal and False:
+            if sell_signal:
                 self.log.info(f"SL_DIST: {SL_DIST}, TP_DIST: {TP_DIST}")
-                self.sell(
+                self.trade_manager.sell(
                     bar.close.as_double(),
                     bar.close.as_double() + SL_DIST,
                     bar.close.as_double() - TP_DIST,
@@ -335,8 +336,18 @@ class PUT101Strategy(Strategy):
             for pos in positions_open:
                 self.write_position(bar, pos)
 
-            for trade in self.trade_manager.trades:
-                self.write_trade(bar, trade)
+            # write bollinger bands
+            for b in self.bands:
+                point = (
+                    Point(f"bollinger")
+                    .tag("strategy_id", self.conf.IDENTIFIER)
+                    .tag("parameters", str(b))
+                    .field("lower", b.lower)
+                    .field("middle", b.middle)
+                    .field("upper", b.upper)
+                    .time(bar.ts_event, WritePrecision.NS)
+                )
+                self.write_points([point])
 
     def write_points(self, points: list[Point]):
         try:
@@ -362,41 +373,10 @@ class PUT101Strategy(Strategy):
 
         # stop the dash app
         self.log.info("stopping influx api_writer and client gracefully")
-        self.write_api.close()
-
+        #self.write_api.close()
         self.client.close()
 
         pass
-
-    def buy(self, entry: float, sl: float, tp: float, quantity: float) -> None:
-        """
-        Users bracket buy method (example).
-        """
-        if not self.instrument:
-            self.log.error("No instrument loaded.")
-            return
-
-        self.trade_manager.buy(entry, sl, tp, quantity)
-
-
-    def sell(self, entry: float, sl: float, tp: float, quantity: float) -> None:
-
-        order_list: OrderList = self.order_factory.bracket(
-            instrument_id=self.instrument_id,
-            order_side=OrderSide.SELL,
-            quantity=self.instrument.make_qty(quantity),
-            time_in_force=TimeInForce.GTD,
-            expire_time=self.clock.utc_now() + timedelta(seconds=30),
-            entry_price=self.instrument.make_price(entry),
-            entry_trigger_price=self.instrument.make_price(entry),  # TODO
-            sl_trigger_price=self.instrument.make_price(sl),
-            tp_trigger_price=self.instrument.make_price(tp),
-            entry_order_type=OrderType.MARKET,
-            tp_order_type=OrderType.MARKET_IF_TOUCHED,
-            emulation_trigger=self.emulation_trigger,
-        )
-
-        self.submit_order_list(order_list)
 
     def write_position(self, bar: Bar, position: Position):
 
@@ -413,15 +393,6 @@ class PUT101Strategy(Strategy):
         )
 
         self.write_points([position_data])
-
-    def write_trade(self, bar: Bar, trade):
-        point = (Point("trade")
-                 .tag("strategy_id", self.conf.IDENTIFIER)
-                 .tag("trade_id", trade.order_id)
-                 .field("current_state", trade.current_state.id)
-                 .time(bar.ts_event, WritePrecision.NS))
-
-        self.write_points([point])
 
     def close_partial_position(
         self,

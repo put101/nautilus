@@ -92,6 +92,7 @@ class PUT101StrategyConfig(StrategyConfig):
     write_indicator_data = True
     bucket = "nautilus"
     IDENTIFIER: str = None
+    environment: dict = field(default_factory=dict)
 
 
 class PUT101Strategy(Strategy):
@@ -99,7 +100,7 @@ class PUT101Strategy(Strategy):
         super().__init__(config)
 
         # config basic parameters
-        self.conf = config
+        self.conf: PUT101StrategyConfig = config
         self.bar_type: BarType = BarType.from_str(config.bar_type)
         self.instrument_id: InstrumentId = InstrumentId.from_str(config.instrument_id)
         self.venue: Venue = self.instrument_id.venue
@@ -207,8 +208,13 @@ class PUT101Strategy(Strategy):
     def on_start(self):
         self.log.info("ON_START")
 
+        token = self.conf.environment["INFLUX_TOKEN"]
+        self.log.debug(f"INFLUX_TOKEN: {token}")
+
         self.client = InfluxDBClient(
-            url="http://localhost:8086", token=os.environ["INFLUX_TOKEN"], org="main"
+            url="http://localhost:8086",
+            token=token,
+            org="main",
         )
         self.write_api = self.client.write_api(
             write_options=WriteOptions(
@@ -342,8 +348,6 @@ class PUT101Strategy(Strategy):
         if self.conf.write_price_data:
             # measure time it takes to write to influxdb
 
-            time = datetime.datetime.now()
-
             price_point = (
                 Point(str(bar.bar_type))
                 .tag("strategy_id", self.conf.IDENTIFIER)
@@ -369,14 +373,8 @@ class PUT101Strategy(Strategy):
             self.write_points([price_point, portfolio_point])
 
             positions_open: list[Position] = cache.positions_open()
-            positions_closed: list[Position] = cache.positions_closed()
-
             for pos in positions_open:
-                self.write_position(bar.ts_event, pos)
-            for pos in positions_closed:
-                self.write_position(bar.ts_event, pos)
-
-            self.log.debug(f"writing to influx took: {datetime.datetime.now() - time}")
+                self.write_position(bar, pos)
 
     def write_points(self, points: list[Point]):
         try:
@@ -452,35 +450,19 @@ class PUT101Strategy(Strategy):
 
         self.submit_order_list(order_list)
 
-    def write_position(self, ts, position):
-        position_data = position.to_dict()
-        point_data = {
-            "measurement": "positions",
-            "tags": {
-                "position_id": position_data["position_id"],
-                "trader_id": position_data["trader_id"],
-                "strategy_id": position_data["strategy_id"],
-                "instrument_id": position_data["instrument_id"],
-                "account_id": position_data["account_id"],
-                "opening_order_id": position_data["opening_order_id"],
-                "closing_order_id": position_data["closing_order_id"],
-                "entry": position_data["entry"],
-                "side": position_data["side"],
-            },
-            "fields": {
-                "signed_qty": position_data["signed_qty"],
-                "quantity": float(position_data["quantity"]),
-                "peak_qty": float(position_data["peak_qty"]),
-                "avg_px_open": float(position_data["avg_px_open"]),
-                "quote_currency": position_data["quote_currency"],
-                "base_currency": position_data["base_currency"],
-                "settlement_currency": position_data["settlement_currency"],
-                "total_commissions": total_commission(position),
-                "realized_return": float(position_data["realized_return"]),
-                "realized_pnl": position_data["realized_pnl"],
-            },
-            "time": ts,
-        }
+    def write_position(self, bar: Bar, position: Position):
+
+        position_data = (
+            Point("position")
+            .tag("strategy_id", self.conf.IDENTIFIER)
+            .tag("position_id", position.id.value)
+            .field("instrument_id", position.instrument_id.value)
+            .field("side", position.side.value)
+            .field("quantity", position.quantity.as_double())
+            .field("unrealized_pnl", position.unrealized_pnl(bar.close).as_double())
+            .field("commission", total_commission(position))
+            .time(bar.ts_event, WritePrecision.NS)
+        )
 
         self.write_points([position_data])
 
@@ -549,8 +531,6 @@ def total_commission(pos: Position) -> float:
     total_commissions = sum(
         (commission for commission in pos.commissions()), Money(0, pos.base_currency)
     )
-    print(f"Total commissions: {total_commissions}")
-
     return float(total_commissions)
 
 

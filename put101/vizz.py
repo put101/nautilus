@@ -15,11 +15,6 @@ from typing import Optional
 
 # ------- MY CODE -------
 import put101.utils as utils
-import put101.indicators as indicators
-
-# create line withs enum
-from enum import Enum
-
 
 class LineWidth:
     THIN = 1

@@ -1,5 +1,5 @@
 # %%
-file_name = "backtest_1_6_1.ipynb"
+file_name = ("backtest_1704.ipynb")
 if file_name is None:
     file_name = __file__
 
@@ -13,11 +13,15 @@ import importlib
 import pandas as pd
 import dotenv
 import os
+import pathlib
 
-dotenv.load_dotenv("docker/.env", override=True)
+PROJECT_ROOT = pathlib.Path('/Users/tobiaspucher/GitHub/nautilus')
+
+dotenv.load_dotenv(PROJECT_ROOT / "docker" / ".env", override=True)
 
 # DATA_PATH = os.environ["DATA_PATH"]
-CATALOG_PATH = os.path.join(os.getcwd(), os.environ["CATALOG_PATH"])
+CATALOG_PATH = str(PROJECT_ROOT / os.environ["CATALOG_PATH"])
+print(CATALOG_PATH)
 
 # nautilus_trader imports
 
@@ -51,7 +55,6 @@ import importlib
 import matplotlib.pyplot as plt
 
 # my packages
-from put101 import indicators
 
 # ---------------- CONFIGURATION ----------------
 catalog = ParquetDataCatalog(CATALOG_PATH)
@@ -69,6 +72,8 @@ instrument_id = InstrumentId(symbol, venue)
 script_name = os.path.basename(file_name).split(".")[0]
 
 IDENTIFIER = script_name
+
+print("PRE-CONFIGURATION COMPLETE")
 
 # %%
 # %%
@@ -95,15 +100,15 @@ data_configs = [
 
 strategies = [
     ImportableStrategyConfig(
-        strategy_path="strategies.v1_6.base:PUT101Strategy",
-        config_path="strategies.v1_6.base:PUT101StrategyConfig",
+        strategy_path="strategies.v1_7.base:PUT101Strategy",
+        config_path="strategies.v1_7.base:PUT101StrategyConfig",
         config=dict(
             environment=os.environ.copy(),
             instrument_id=instrument_id.value,
             bar_type=f"{instrument_id}-5-MINUTE-BID-INTERNAL",
             IDENTIFIER=IDENTIFIER,
             bb_params=[
-                (20, 2),
+                (20, 2.5),
             ],
         ),
     ),
@@ -117,7 +122,7 @@ configs = [
             logging=LoggingConfig(
                 log_level="INFO",
                 log_level_file="DEBUG",
-                log_file_format="json",
+                log_file_format="csv",
                 log_directory="logs",
                 log_file_name=f"backtest_{Timestamp.now()}.log",
             ),

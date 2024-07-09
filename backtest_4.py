@@ -1,5 +1,5 @@
 # %%
-file_name = "backtest_4_0.ipynb"
+file_name = "backtest_4_2.ipynb"
 if file_name is None:
     file_name = __file__
 
@@ -14,7 +14,7 @@ import pandas as pd
 import dotenv
 import os
 
-dotenv.load_dotenv(".env")
+dotenv.load_dotenv("docker/.env", override=True)
 
 # DATA_PATH = os.environ["DATA_PATH"]
 CATALOG_PATH = os.path.join(os.getcwd(), os.environ["CATALOG_PATH"])
@@ -102,6 +102,7 @@ strategies = [
         strategy_path="strategies.base_4:PUT101Strategy",
         config_path="strategies.base_4:PUT101StrategyConfig",
         config=dict(
+            environment=os.environ.copy(),
             instrument_id=instrument_id.value,
             bar_type=f"{instrument_id}-5-MINUTE-BID-INTERNAL",
             IDENTIFIER=IDENTIFIER,
@@ -142,4 +143,3 @@ results = node.run()
 
 # %%
 # %%
-

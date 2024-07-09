@@ -66,8 +66,9 @@ class TradeResult(enum.Enum):
 
 class SimpleTrade(StateMachine):
 
-    def __init__(self, strategy: Strategy, order_list: OrderList):
-        self.log = strategy.log # logging needed as initial transitions happen during creation
+    def __init__(self, strategy: Strategy, write_points, order_list: OrderList):
+        self.log = strategy.log
+        self.write_points = write_points
         self.strategy: Strategy = strategy
         self.order_id = order_list.id
         self.order_list: OrderList = order_list
@@ -77,16 +78,17 @@ class SimpleTrade(StateMachine):
         self.position_id: PositionId = None
         super().__init__() # respect super, but we need stuff before the transitions are called
 
-    state_created = State("Created", initial=True)
-    state_submitted = State("Submitted")
-    state_accepted = State("Accepted")
-    state_entered = State("Entered")
-    state_error = State("Error", final=True)
-    state_finished = State("Finished", final=True)
+    state_created = State("Created", value=0, initial=True)
+    state_submitted = State("Submitted", value=1)
+    state_accepted = State("Accepted", value=2)
+    state_entered = State("Entered", value=3)
+    state_error = State("Error", value=4, final=True)
+    state_finished = State("Finished", value=5, final=True)
 
     submit_orders = state_created.to(state_submitted)
     order_list_accepted = state_submitted.to(state_accepted)
-    position_found = state_accepted.to(state_entered)
+
+    position_found = state_accepted.to(state_entered) | state_submitted.to(state_entered)
 
     position_got_closed = state_entered.to(state_finished)
 
@@ -102,22 +104,22 @@ class SimpleTrade(StateMachine):
         self.log.debug(f"SimpleTrade.summary: {self}")
         return str({
             "id": self.order_id,
-            "state": self.current_state.id,
-            "entry_order_id": self.entry_order.client_order_id,
-            "sl_order_id": self.sl_order.client_order_id,
-            "tp_order_id": self.tp_order.client_order_id,
-            "position_id": self.position_id,
+            "state_id": self.current_state.id,
+            "state_value": self.current_state_value,
+            "position_id": str(self.position_id),
         })
 
     def make_point(self, time, event: None):
         self.log.debug(f"SimpleTrade.make_point: {time}, {event}")
         point = Point("trade")
+        point.tag("strategy_id", self.strategy.conf.IDENTIFIER)
         point.tag("id", self.order_id)
-        point.field("state", self.current_state.id)
-        point.field("entry_order_id", self.entry_order.client_order_id)
-        point.field("sl_order_id", self.sl_order.client_order_id)
-        point.field("tp_order_id", self.tp_order.client_order_id)
-        point.field("position_id", self.position_id)
+        point.field("state_id", self.current_state.id)
+        point.field("state_value", self.current_state.value)
+        point.field("entry_order_id", self.entry_order.client_order_id.value)
+        point.field("sl_order_id", self.sl_order.client_order_id.value)
+        point.field("tp_order_id", self.tp_order.client_order_id.value)
+        point.field("position_id", str(self.position_id))
         point.field("event", str(event))
         point.time(time, WritePrecision.NS)
         return point
@@ -130,6 +132,8 @@ class SimpleTrade(StateMachine):
     def on_enter_state(self, event, state):
         self.log.info(f"Entering '{state.id}' state from '{event}' event.")
         self.log.info(self.summary())
+        self.write_points([self.make_point(self.strategy.clock.utc_now(), event)])
+
 
 
     def on_order_event(self, event: OrderEvent):

@@ -3,6 +3,7 @@ version: '3.7'
 networks:
   main_network:
 
+
 services:
   influxdb:
     image: influxdb:2
@@ -16,6 +17,7 @@ services:
     env_file:
       - .env
     environment:
+      - INFLUXDB_DB=influx
       - DOCKER_INFLUXDB_INIT_MODE=setup
       - DOCKER_INFLUXDB_INIT_USERNAME=put101
       - DOCKER_INFLUXDB_INIT_PASSWORD=${DOCKER_INFLUXDB_INIT_PASSWORD}
@@ -23,7 +25,26 @@ services:
       - DOCKER_INFLUXDB_INIT_BUCKET=nautilus
       - DOCKER_INFLUXDB_INIT_RETENTION=0
       - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${DOCKER_INFLUXDB_INIT_ADMIN_TOKEN}
-      
+
+  loki:
+    image: grafana/loki:2.9.2
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./loki-config:/etc/loki
+    networks:
+      - main_network
+
+  promtail:
+    image: grafana/promtail:latest
+    volumes:
+      - ../logs:/tmp/logs/:ro
+      - ./promtail-config/promtail-config.yml:/etc/promtail/promtail.yml
+    command: -config.file=/etc/promtail/promtail.yml
+    depends_on:
+      - loki
+
   grafana:
     image: grafana/grafana-oss
     container_name: grafana
@@ -46,6 +67,3 @@ services:
       - GF_PATHS_PLUGINS=/var/lib/grafana/plugins
       - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
       - GF_DATASOURCE_INFLUXDB_URL=http://influxdb:8086
-      - GF_DATASOURCE_INFLUXDB_TOKEN=${DOCKER_INFLUXDB_INIT_ADMIN_TOKEN}
-      - GF_DATASOURCE_INFLUXDB_ORG=main
-      - GF_DATASOURCE_INFLUXDB_BUCKET=nautilus

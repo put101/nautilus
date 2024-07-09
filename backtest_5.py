@@ -99,8 +99,8 @@ data_configs = [
 
 strategies = [
     ImportableStrategyConfig(
-        strategy_path="strategies.base_4:PUT101Strategy",
-        config_path="strategies.base_4:PUT101StrategyConfig",
+        strategy_path="strategies.base_5:PUT101Strategy",
+        config_path="strategies.base_5:PUT101StrategyConfig",
         config=dict(
             environment=os.environ.copy(),
             instrument_id=instrument_id.value,

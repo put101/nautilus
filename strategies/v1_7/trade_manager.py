@@ -58,11 +58,12 @@ from trade_factory import TradeFactory
 from trade import SimpleTrade
 
 class TradeManager:
-    def __init__(self, strategy):
+    def __init__(self, strategy, write_points):
         self.strategy = strategy
+        self.write_points = write_points
         self.log = self.strategy.log
         self.cache: CacheFacade = strategy.cache
-        self.trade_factory = TradeFactory(strategy)
+        self.trade_factory = TradeFactory(strategy, write_points)
         self.trades: list[SimpleTrade] = []
         self.finished_trades: list[SimpleTrade] = []
 
@@ -71,6 +72,13 @@ class TradeManager:
 
     def buy(self, entry: float, sl: float, tp: float, quantity: float):
         self.log.info(f"TradeManager.buy: {entry}, {sl}, {tp}, {quantity}")
+        trade = self.trade_factory.market_entry(entry, sl, tp, quantity)
+        self.trades.append(trade)
+
+        trade.submit()
+
+    def sell(self, entry: float, sl: float, tp: float, quantity: float):
+        self.log.info(f"TradeManager.sell: {entry}, {sl}, {tp}, {quantity}")
         trade = self.trade_factory.market_entry(entry, sl, tp, quantity)
         self.trades.append(trade)
 

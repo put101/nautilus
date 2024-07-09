@@ -1,18 +1,8 @@
-import os
-import threading
-import datetime
 from builtins import bool
 from dataclasses import field
 from datetime import timedelta
-from typing import TypeAlias, List, Tuple
 from decimal import Decimal
-import pandas as pd
-
-import dotenv
-
 import enum
-from statemachine import StateMachine, State
-from statemachine.exceptions import TransitionNotAllowed
 
 from nautilus_trader.core.nautilus_pyo3 import (
     OrderSide,
@@ -20,8 +10,6 @@ from nautilus_trader.core.nautilus_pyo3 import (
     OrderType,
     PositionId,
 )
-
-from nautilus_trader.config import LoggingConfig
 
 from nautilus_trader.model.events import (
     OrderEvent,
@@ -65,17 +53,16 @@ from nautilus_trader.core.datetime import (
     unix_nanos_to_dt,
 )
 
-import put101.utils as utils
-import put101.vizz as vizz
 from put101.indicators import TrackerMulti
-from put101.vizz import PlotConfig, ListStyling, LineIndicatorStyle
 
 # time series persistence and analysis
 from influxdb_client import InfluxDBClient, Point, WritePrecision, WriteOptions
 from influxdb_client.client.write_api import SYNCHRONOUS
 from influxdb_client.client.exceptions import InfluxDBError
 
-from strategies.v1_6.trade_manager import SimpleTrade, TradeManager
+from trade_manager import TradeManager
+import utils
+
 
 class PUT101StrategyConfig(StrategyConfig):
     # strategy specific
@@ -118,8 +105,8 @@ class PUT101Strategy(Strategy):
         self.extra_trackers: list[TrackerMulti] = []
 
         # plotting styles
-        self.overlay_styles: list[vizz.LineIndicatorStyle] = []
-        self.extra_styles: list[vizz.LineIndicatorStyle] = []
+        self.overlay_styles: list = []
+        self.extra_styles: list = []
 
         # concrete trackers
         self.portfolio_tracker: TrackerMulti = TrackerMulti(
@@ -145,7 +132,6 @@ class PUT101Strategy(Strategy):
             self.overlay_trackers.append(
                 TrackerMulti(b, value_getters=bollinger_getters)
             )
-            self.overlay_styles.append(vizz.LineIndicatorStyle("blue", 0.5, 2))
 
         self.indicators.append(self.portfolio_tracker)
         self.indicators.extend(self.extra_trackers)
@@ -163,49 +149,16 @@ class PUT101Strategy(Strategy):
         self.write_api = None
         self.callback = None
 
-    def get_main_plottable_indicators(
-        self,
-    ) -> tuple[list[TrackerMulti], list[vizz.LineIndicatorStyle]]:
-        return self.overlay_trackers, self.overlay_styles
-
-    def get_extra_plots(self):
-        return [
-            (
-                vizz.PlotConfig(title="Portfolio Tracker"),
-                [self.portfolio_tracker],
-                [
-                    vizz.ListStyling(
-                        [
-                            vizz.LineIndicatorStyle("blue", 0.5, 2),
-                            vizz.LineIndicatorStyle("green", 0.5, 2),
-                        ]
-                    )
-                ],
-            ),
-            (
-                vizz.PlotConfig(title="Extra Trackers"),
-                self.extra_trackers,
-                self.extra_styles,
-            ),
-        ]
-
-    @property
-    def bars(self) -> list[Bar]:
-        return self.processed_bars
 
     def influx_success(self, conf: (str, str, str), data: str):
-        self.log.debug(f"influx_success: Written batch: {conf}, data: {data}")
-
+        #self.log.debug(f"influx_success: Written batch: {conf}, data: {data}")
+        return
     def influx_error(self, conf: (str, str, str), data: str, exception: InfluxDBError):
-        self.log.error(
-            f"influx_error: Cannot write batch: {conf}, data: {data} due: {exception}"
-        )
-
+        #self.log.error(f"influx_error: Cannot write batch: {conf}, data: {data} due: {exception}")
+        return
     def influx_retry(self, conf: (str, str, str), data: str, exception: InfluxDBError):
-        self.log.error(
-            f"influx_retry: Retryable error occurs for batch: {conf}, data: {data} retry: {exception}"
-        )
-
+        #self.log.error(f"influx_retry: Retryable error occurs for batch: {conf}, data: {data} retry: {exception}")
+        return
     def on_start(self):
         self.log.info("ON_START")
 
@@ -238,6 +191,7 @@ class PUT101Strategy(Strategy):
         self.subscribe_bars(self.bar_type)
 
     def on_order_event(self, event: OrderEvent):
+        self.log.debug(f"OrderEvent: {event}")
         self.trade_manager.on_order_event(event)
 
     def on_position_event(self, PositionEvent_event):
@@ -328,9 +282,10 @@ class PUT101Strategy(Strategy):
         # TP_DIST = TP_POINTS * POINT_SIZE
         TP_DIST = 0.00010
 
-        if is_flat:
-            if buy_signal:
+        n_trades = len(self.trade_manager.trades)
 
+        if is_flat and n_trades == 0:
+            if buy_signal:
                 self.log.info(f"qty: {qty}, SL_DIST: {SL_DIST}, TP_DIST: {TP_DIST}")
                 self.trade_manager.buy(
                     bar.close.as_double(),
@@ -453,7 +408,7 @@ class PUT101Strategy(Strategy):
             .field("side", position.side.value)
             .field("quantity", position.quantity.as_double())
             .field("unrealized_pnl", position.unrealized_pnl(bar.close).as_double())
-            .field("commission", total_commission(position))
+            .field("commission", utils.total_commission(position))
             .time(bar.ts_event, WritePrecision.NS)
         )
 
@@ -462,11 +417,9 @@ class PUT101Strategy(Strategy):
     def write_trade(self, bar: Bar, trade):
         point = (Point("trade")
                  .tag("strategy_id", self.conf.IDENTIFIER)
-                 .tag("trade_id", trade.id)
+                 .tag("trade_id", trade.order_id)
                  .field("current_state", trade.current_state.id)
                  .time(bar.ts_event, WritePrecision.NS))
-
-        self.log.info(f"write_trade: {point}")
 
         self.write_points([point])
 
@@ -517,46 +470,3 @@ class PUT101Strategy(Strategy):
         self.submit_order(order, position_id=position.id, client_id=client_id)
 
 
-class TradeResult(enum.Enum):
-    TP = 0
-    PARTIAL_PROFIT = 1
-    BE = 2
-    SL = 3
-    ERROR = 4
-
-
-def total_commission(pos: Position) -> float:
-    total_commissions = sum(
-        (commission for commission in pos.commissions()), Money(0, pos.base_currency)
-    )
-    return float(total_commissions)
-
-
-class TradeFactory:
-    def __init__(self, strategy: PUT101Strategy):
-        self.strategy = strategy
-        self.expire_seconds = 30
-        self.cache: CacheFacade = strategy.cache
-
-    def market_entry(self, entry: float, sl: float, tp: float, quantity: float):
-        strategy = self.strategy
-
-        order_side = OrderSide.BUY if entry > sl else OrderSide.SELL
-
-        order_list: OrderList = strategy.order_factory.bracket(
-            instrument_id=strategy.instrument_id,
-            order_side=order_side,
-            quantity=strategy.instrument.make_qty(quantity),
-            time_in_force=TimeInForce.GTD,
-            expire_time=strategy.clock.utc_now()
-            + timedelta(seconds=self.expire_seconds),
-            entry_price=strategy.instrument.make_price(entry),
-            entry_trigger_price=strategy.instrument.make_price(entry),
-            sl_trigger_price=strategy.instrument.make_price(sl),
-            tp_price=strategy.instrument.make_price(tp),
-            entry_order_type=OrderType.MARKET_IF_TOUCHED,
-            emulation_trigger=strategy.emulation_trigger,
-        )
-
-        trade = SimpleTrade(self, order_list)
-        return trade

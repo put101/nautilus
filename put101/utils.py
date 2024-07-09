@@ -66,58 +66,6 @@ def get_configs():
     pass
 
 
-class PortfolioIndicator(Indicator):
-    def __init__(self, portfolio_getter: callable, venue):
-        super().__init__(["portfolio"])
-        self.portfolio_getter = portfolio_getter
-        self.venue = venue
-        self.balance: float = 0
-        self.unrealized_pnl: float = 0
-        self.equity: float = 0
-        self.margin: float = 0
-        self.margin_pct: float = 0
-        self.free: float = 0
-
-    @property
-    def initialized(self):
-        return self.portfolio_getter() is not None and self.venue is not None
-
-    @property
-    def has_inputs(self):
-        return self.portfolio_getter().unrealized_pnls(self.venue) is not None
-
-    def handle_bar(self, bar: Bar):
-        p: Portfolio = self.portfolio_getter()
-        a: Account = p.account(self.venue)
-        a_currency: Currency = a.currencies()[0]
-
-        # balance
-        self.balance: float = a.balance(a.currencies()[0]).total.as_double()
-
-        # unrealized pnl
-        unreal_pnl_dict = p.unrealized_pnls(self.venue)
-        self.unrealized_pnl = unreal_pnl_dict.get(
-            a_currency, Money(0, a_currency)
-        ).as_double()
-        # equity
-        self.equity = self.balance + self.unrealized_pnl
-
-        # margin
-        self.margin = 0
-        if a.is_margin_account:
-            am: MarginAccount = a
-            # {}
-            # {InstrumentId('EURUSD.SIM_EIGHTCAP'): MarginBalance(initial=54.89 USD, maintenance=0.00 USD, instrument_id=EURUSD.SIM_EIGHTCAP)}
-
-            for k, v in am.margins().items():
-                self.margin += v.initial.as_double()
-
-        # margin pct
-        if self.equity > 0:
-            self.margin_pct = self.equity - self.margin
-        else:
-            self.margin_pct = 0
-
 
 def get_layout(
     res: BacktestResult,

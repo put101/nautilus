@@ -57,8 +57,9 @@ from influxdb_client import Point
 from trade import SimpleTrade
 
 class TradeFactory:
-    def __init__(self, strategy):
+    def __init__(self, strategy: Strategy, write_points):
         self.strategy = strategy
+        self.write_points = write_points
         self.expire_seconds = 30
         self.cache: CacheFacade = strategy.cache
 
@@ -78,9 +79,9 @@ class TradeFactory:
             entry_trigger_price=strategy.instrument.make_price(entry),
             sl_trigger_price=strategy.instrument.make_price(sl),
             tp_price=strategy.instrument.make_price(tp),
-            entry_order_type=OrderType.MARKET_IF_TOUCHED,
+            entry_order_type=OrderType.MARKET,
             emulation_trigger=strategy.emulation_trigger,
         )
 
-        trade = SimpleTrade(self.strategy, order_list)
+        trade = SimpleTrade(self.strategy, self.write_points, order_list)
         return trade
