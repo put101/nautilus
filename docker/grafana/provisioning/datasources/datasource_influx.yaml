@@ -1,0 +1,56 @@
+apiVersion: 1
+
+deleteDatasources:
+  - name: InfluxDB
+    orgId: 1
+  - name: InfluxDB_v2_Flux
+    orgId: 1
+  - name: InfluxDB_v2_InfluxQL
+    orgId: 1
+  - name: InfluxDB_v3_InfluxQL
+    orgId: 1
+
+
+prune: true
+
+datasources:
+  - name: InfluxDB_v2_Flux
+    type: influxdb
+    access: proxy
+    url: http://influxdb:8086
+    jsonData:
+      version: Flux
+      dbName: ${GF_DATASOURCE_INFLUXDB_DB}
+      organization: main
+      defaultBucket: nautilus
+      tlsSkipVerify: true
+    secureJsonData:
+      token: ${GF_DATASOURCE_INFLUXDB_TOKEN}
+    editable: true
+
+
+  - name: InfluxDB_v2_InfluxQL
+    type: influxdb
+    access: proxy
+    url: http://influxdb:8086
+    editable: true
+    jsonData: 
+      dbName: nautilus
+      tlsSkipVerify: true      
+      httpHeaderName1: 'Authorization'
+    secureJsonData:
+      httpHeaderValue1: 'Token <${GF_DATASOURCE_INFLUXDB_TOKEN}>'
+
+
+  - name: InfluxDB_v3_InfluxQL
+    type: influxdb
+    access: proxy
+    url: http://influxdb:8086
+    editable: true
+    jsonData:
+      version: SQL
+      dbName: ${GF_DATASOURCE_INFLUXDB_DB}
+      httpMode: POST
+      insecureGrpc: true
+    secureJsonData:
+      token: '<${GF_DATASOURCE_INFLUXDB_TOKEN}>'
