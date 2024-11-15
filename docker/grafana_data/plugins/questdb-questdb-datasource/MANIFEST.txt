@@ -1,0 +1,43 @@
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+{
+  "manifestVersion": "2.0.0",
+  "signatureType": "commercial",
+  "signedByOrg": "questdb",
+  "signedByOrgName": "questdb",
+  "plugin": "questdb-questdb-datasource",
+  "version": "0.1.4",
+  "time": 1721402733224,
+  "keyId": "7e4d0c6a708866e7",
+  "files": {
+    "go_plugin_build_manifest": "e7b36227ae9bc70a0e6f4771db2fea5752dbca98070957a73abddd6487f80077",
+    "gpx_questdb_linux_amd64": "ea08fe4d6e50a59ded6b1ddbf3cb877bd51bc429eddfaab9b58640a2bf8a83b4",
+    "LICENSE": "6004877f0c217f92ab02f8b8d61df352fe65ce0a752e5919b1a64d8ee43a8d56",
+    "CHANGELOG.md": "89a075ad7f04182abbcc54786f0632b3382a17a751777ed9d9584cb530373fd4",
+    "gpx_questdb_linux_arm": "c012280f67c09d00f00f1a9260dbbae5f6753ae52c18c07b7ec6169a5170ac26",
+    "module.js.LICENSE.txt": "51f21678ea3163dbd6df4abd3c58c069d4a722b0055f7ef97b7a2e8bb6514121",
+    "gpx_questdb_darwin_arm64": "c293270407d1f972994a85123b4d19b20cd41017961c83f4d74ce78649151d67",
+    "module.js.map": "a2c58b0f07ac25d75fb664ae7ec855fdaae47379cbdf15b5d40819d291927e9c",
+    "plugin.json": "31ac2dc6913832ed464730ec8a311b60db8604215363c7a4a2f9ce0428602b47",
+    "README.md": "92583542556d0ef68d28df8ef7b5f85b9ead72c3322809ad16fc9fb023d72016",
+    "img/sql_builder.png": "dacde7e3bab620864c9837c487168406ff0a59a7bec852e38cd04515dbd4abce",
+    "img/logo.svg": "2d7cc604af41ddef575e0949e30c845caf8007b582c30184504a7344f76510ae",
+    "gpx_questdb_linux_arm64": "e3851e16d9bf8b7437b7610f1beb0cd444e7d14bed5020e28209b58ca2f669fe",
+    "module.js": "266393b5456b051edec588f78350678b77a9dab888a5411daf85bb61684fce48",
+    "gpx_questdb_windows_amd64.exe": "efe09814ee891aff6f8be39341aaa9148faeb503125262a4ebba821d005788db",
+    "gpx_questdb_darwin_amd64": "078de284fba5b6ff6b6b6282530ab13c2c64c9293da9d13f5edbda0367a3f139"
+  }
+}
+-----BEGIN PGP SIGNATURE-----
+Version: OpenPGP.js v4.10.11
+Comment: https://openpgpjs.org
+
+wrkEARMKAAYFAmaahW0AIQkQfk0ManCIZucWIQTzOyW2kQdOhGNlcPN+TQxq
+cIhm52utAgkAlc59HIj4s4BzLdeEtj4UTn+/q7zZ5a7kLOiWbHtkHNeVQDzf
+Xdby4rAapBqhwIpxjOq4/RVEikFPd3zCSp8NikwCCQFnGPb+iuoqnkTWRZIE
+TZI3Bpw07fG6sKFdBGn5vZWiHMJkhHxD42edbhAa2WPSQyMtuhtEj1wKWt4W
+yQTzpa2vgw==
+=gaUy
+-----END PGP SIGNATURE-----

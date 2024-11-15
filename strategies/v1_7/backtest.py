@@ -15,6 +15,13 @@ import dotenv
 import os
 import pathlib
 
+import sys
+
+dotenv.load_dotenv()
+
+print("appending to sys path: ", os.path.abspath("."))
+sys.path.append(os.path.abspath("."))
+
 # reload environment
 PROJECT_ROOT = pathlib.Path(os.environ.get("NAUTILUS_PROJECT_ROOT"))
 if PROJECT_ROOT is None:
@@ -72,6 +79,7 @@ symbol = Symbol(symbol_str)
 instrument_id_str = f"EURUSD.{venue}"
 
 instrument_id = InstrumentId(symbol, venue)
+print(instrument_id)
 script_name = os.path.basename(file_name).split(".")[0]
 
 IDENTIFIER = script_name

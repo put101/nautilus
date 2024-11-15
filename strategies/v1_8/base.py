@@ -69,7 +69,7 @@ class PUT101StrategyConfig(StrategyConfig):
     bb_params: list[tuple[int, float]]  # period  # std
     TP_PIPS:int
     SL_PIPS:int
-    RR:int
+    RR:float
 
     # general
     instrument_id: str

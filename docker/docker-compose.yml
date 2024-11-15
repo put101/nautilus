@@ -3,7 +3,6 @@ version: '3.7'
 networks:
   main_network:
 
-
 services:
   influxdb:
     image: influxdb:2
@@ -67,3 +66,15 @@ services:
       - GF_PATHS_PLUGINS=/var/lib/grafana/plugins
       - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
       - GF_DATASOURCE_INFLUXDB_URL=http://influxdb:8086
+
+  questdb:
+    image: questdb/questdb:latest
+    networks:
+      - main_network
+    ports:
+      - "9000:9000"
+      - "9009:9009"
+      - "8812:8812"
+      - "9003:9003"
+    volumes:
+      - ./questdb_data:/var/lib/questdb

@@ -1,6 +1,15 @@
 # nautilus
  Nautilus quant stuff.
 
+
+# local packages
+No module named strategies
+`pip install -e strategies `
+
+2024-11-14T22:48:16.325715001Z [ERROR] BACKTESTER-001.BacktestNode: Error running backtest: No module named 'put101'
+`pip install -e strategies put101`
+
+
 # influxdb
 
 ```sh

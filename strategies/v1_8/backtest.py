@@ -15,6 +15,8 @@ import dotenv
 import os
 import pathlib
 
+dotenv.load_dotenv()
+
 # reload environment
 PROJECT_ROOT = pathlib.Path(os.environ.get("NAUTILUS_PROJECT_ROOT"))
 if PROJECT_ROOT is None:
@@ -24,10 +26,14 @@ dotenv.load_dotenv(PROJECT_ROOT / "docker" / ".env", override=True)
 
 # DATA_PATH = os.environ["DATA_PATH"]
 CATALOG_PATH = str(PROJECT_ROOT / os.environ["CATALOG_PATH"])
+CATALOG_PATH = './catalog/'
 print(CATALOG_PATH)
 
-# nautilus_trader imports
+import sys
+print("appending to sys path: ", os.path.abspath("."))
+sys.path.append(os.path.abspath("."))
 
+# nautilus_trader imports
 from nautilus_trader.model.position import Position
 from nautilus_trader.model.objects import Price
 from nautilus_trader.model.identifiers import Venue, InstrumentId, Symbol
@@ -61,7 +67,7 @@ import matplotlib.pyplot as plt
 
 # ---------------- CONFIGURATION ----------------
 catalog = ParquetDataCatalog(CATALOG_PATH)
-start = dt_to_unix_nanos(pd.Timestamp("2023-01-01 00:00:00"))
+start = dt_to_unix_nanos(pd.Timestamp("2020-01-01 00:00:00"))
 
 end = start + pd.Timedelta(days=120).value
 

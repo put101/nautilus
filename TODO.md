@@ -3,3 +3,5 @@
   - e.g. RIMC says that EU moves 20-30 pips per session.
 
 
+dependencies:
+pip install influxdb-client
