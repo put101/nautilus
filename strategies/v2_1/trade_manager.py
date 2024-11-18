@@ -54,8 +54,8 @@ from nautilus_trader.core.datetime import (
 from influxdb_client import Point
 from datetime import timedelta
 
-from trade_factory import TradeFactory
-from trade import SimpleTrade
+from .trade_factory import TradeFactory
+from .trade import SimpleTrade
 
 class TradeManager:
     def __init__(self, strategy, write_points):

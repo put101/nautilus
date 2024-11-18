@@ -52,7 +52,7 @@ from nautilus_trader.core.datetime import (
 )
 from datetime import timedelta
 
-from trade import SimpleTrade
+from .trade import SimpleTrade
 
 class TradeFactory:
     def __init__(self, strategy: Strategy, write_points):

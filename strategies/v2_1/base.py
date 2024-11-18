@@ -77,13 +77,13 @@ from dataclasses import dataclass
 class QuestDBConfig:
     conf: str = "http::addr=localhost:9000;"
 
-class PUT101StrategyConfig(StrategyConfig):
-    # strategy specific
+@dataclass
+class MainConfig:
     bb_params: list[tuple[int, float]]  # period  # std
-    TP_PIPS: int
-    SL_PIPS: int
-    RR: float
-
+    sl_pips: int
+    tp_pips: int
+    risk_reward: float
+    
     # general
     instrument_id: str
     bar_type: str
@@ -97,9 +97,10 @@ class PUT101StrategyConfig(StrategyConfig):
     write_indicator_data = True
     bucket = "nautilus"
     environment: dict = field(default_factory=dict)
-    questdb: QuestDBConfig = QuestDBConfig()
-    
+    questdb: QuestDBConfig = field(default_factory=QuestDBConfig)
 
+class PUT101StrategyConfig(StrategyConfig):
+    main: MainConfig
 
 
 class PUT101Strategy(Strategy):
@@ -109,12 +110,17 @@ class PUT101Strategy(Strategy):
         self.IS_ABORTED = False
         
         # config basic parameters
-        self.conf: PUT101StrategyConfig = config
-        self.bar_type: BarType = BarType.from_str(config.bar_type)
+        #self.conf: PUT101StrategyConfig = config
+        self.conf = config.main
+        self.bar_type: BarType = BarType.from_str(self.conf.bar_type)
+        self.log.info(str(self.bar_type))
         self.instrument_id: InstrumentId = InstrumentId.from_str(
-            config.instrument_id)
+            self.conf.instrument_id)
+        self.log.info(str(self.instrument_id))
         self.venue: Venue = self.instrument_id.venue
-        self.emulation_trigger = TriggerType[config.emulation_trigger]
+        self.emulation_trigger = TriggerType[self.conf.emulation_trigger]
+
+        
 
         # other parameters
         self.max_dd = 0.05
@@ -238,6 +244,7 @@ class PUT101Strategy(Strategy):
             org="main",
         )
         
+        
         self.write_api = self.client.write_api(
             write_options=WriteOptions(
                 batch_size=10_000,
@@ -253,6 +260,7 @@ class PUT101Strategy(Strategy):
             error_callback=self.influx_error,
             retry_callback=self.influx_retry,
         )
+        
         self.instrument = self.cache.instrument(self.instrument_id)
 
         if self.instrument is None:
@@ -351,11 +359,11 @@ class PUT101Strategy(Strategy):
             sell_signal = True
 
 
-        SL_DIST = self.conf.SL_PIPS * PIP_SIZE
-        if self.conf.RR != 0:
-            TP_DIST = SL_DIST * self.conf.RR
+        SL_DIST = self.conf.tp_pips * PIP_SIZE
+        if self.conf.risk_reward != 0:
+            TP_DIST = SL_DIST * self.conf.risk_reward
         else:
-            TP_DIST = self.conf.TP_PIPS * PIP_SIZE
+            TP_DIST = self.conf.tp_pips * PIP_SIZE
         n_trades = len(self.trade_manager.trades)
 
         if is_flat and n_trades == 0:

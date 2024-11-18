@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Optional
 
 # ------- MY CODE -------
-import put101.utils as utils
+from .utils import *
 
 class LineWidth:
     THIN = 1
