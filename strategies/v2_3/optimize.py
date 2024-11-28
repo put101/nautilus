@@ -52,10 +52,10 @@ from base import PUT101StrategyConfig, MainConfig
 class BacktestConfig:
     project_root: str
     catalog_path: str
-    study_name: str = "bt_default_experiment" + "_1"
-    storage: str = "sqlite:///./optuna.db"
-    version:str = os.path.basename(pathlib.Path(__file__).parent)
-    n_trials: int = 2
+    n_trials: int
+    study_name: str # "bt_default_experiment" + "_1"
+    storage: str # sqlite:///example.db
+    version: str = os.path.basename(pathlib.Path(__file__).parent)
     optimization_goals: list = field(default_factory=list) # list[tuple[str,str]] metric name, metric optim direction
 
 cs = ConfigStore.instance()
@@ -88,6 +88,9 @@ def create_backtest_config(trial: optuna.Trial, config: BacktestConfig) -> Backt
     end = dt_to_unix_nanos(pd.Timestamp(cfg.end_dt))
     if cfg.end_dt is None:
         end = start + pd.Timedelta(days=cfg.end_days).value
+
+    IDENTIFIER=f"{config.study_name}_trial_{trial.number}"
+    trial.set_user_attr("IDENTIFIER", IDENTIFIER)
 
     main_conf = MainConfig(
         environment=os.environ.copy(),
@@ -158,18 +161,21 @@ def objective(trial: optuna.Trial, config: BacktestConfig) -> list[float]:
     from time import sleep
     
     run_config = create_backtest_config(trial, config)
+    trial.set_user_attr("config", OmegaConf.to_yaml(config))
+    trial.set_user_attr("run_config", str(run_config))
     node = BacktestNode([run_config])
-    
-
     print(f"Running trial {trial.number}")
     
     try:
         results = node.run(raise_exception=True)
         res: BacktestResult = results[0]
         logger.info(f"Trial {trial.number} completed: {res}")        
-        metrics = metrics_from_result(res)
+        flattened_results = metrics_from_result(res)
+
+        # add additional metrics
+        trial.set_user_attr("metrics", flattened_results)       
         
-        return [metrics[m] for m,_ in config.optimization_goals]
+        return [flattened_results[m] for m,_ in config.optimization_goals]
 
     except Exception as e:
         logger.error(f"Trial failed: {e}")

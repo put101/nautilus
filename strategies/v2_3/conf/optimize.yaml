@@ -1,14 +1,15 @@
-study_name: "bt_default_experiment_1"
+study_name: "optimize_1"
 storage: "sqlite:///./optuna.db"
 version: ???
-n_trials: 1
+n_trials: 16
 project_root: "${oc.env:NAUTILUS_PROJECT_ROOT}"  # Loaded from .env
 catalog_path: "${oc.env:NAUTILUS_PROJECT_ROOT}/catalog"
 
-start_dt: "2020-01-01"
-end_dt: "2020-12-31"
+start_dt: "2020-11-01"
+end_dt: "2020-11-14"
 end_days: null
 
 optimization_goals:
   - ["PnL% (total)", "maximize"]
   - ["Win Rate", "maximize"]
+  

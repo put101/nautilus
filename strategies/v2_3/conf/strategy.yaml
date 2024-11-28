@@ -1,5 +1,5 @@
 bb_period_min: 1
-bb_period_max: 2
+bb_period_max: 200
 bb_std_min: 1.0
 bb_std_max: 3.0
 tp_pips_min: 0

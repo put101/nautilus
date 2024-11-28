@@ -53,6 +53,13 @@ from nautilus_trader.core.datetime import (
     maybe_unix_nanos_to_dt,
     unix_nanos_to_dt,
 )
+from nautilus_trader.core.data import Data
+from nautilus_trader.core.datetime import dt_to_unix_nanos, unix_nanos_to_dt, format_iso8601
+from nautilus_trader.model.data import DataType
+from nautilus_trader.serialization.base import register_serializable_type
+
+def unix_nanos_to_str(unix_nanos):
+    return format_iso8601(unix_nanos_to_dt(unix_nanos))
 
 
 # time series persistence and analysis
@@ -102,6 +109,7 @@ class MainConfig:
 
 class PUT101StrategyConfig(StrategyConfig):
     main: MainConfig
+
 
 class PUT101Strategy(Strategy):
     def __init__(self, config: PUT101StrategyConfig):
@@ -199,10 +207,42 @@ class PUT101Strategy(Strategy):
         
         self.db.execute('CREATE TABLE IF NOT EXISTS events_str (ts TIMESTAMP, data STRING)')
         self.db.execute('CREATE TABLE IF NOT EXISTS events (ts TIMESTAMP, data JSON)')
-        
-        
         self.log.info('PUT101Strategy.__init__  done')
+        
+    class MyData(Data):
+        """Entry Signal data."""
+        def __init__(self, data_type, data, ts_event: int, ts_init: int):
+            self.data_type=data_type
+            self.data = data
+            self._ts_event = ts_event
+            self._ts_init = ts_init
 
+        def __repr__(self):
+            return f"MyData{self.data_type}(data={self.data})"
+        
+        @property
+        def ts_event(self) -> int:
+            """
+            UNIX timestamp (nanoseconds) when the data event occurred.
+
+            Returns
+            -------
+            int
+            """
+            return self._ts_event
+
+        @property
+        def ts_init(self) -> int:
+            """
+            UNIX timestamp (nanoseconds) when the object was initialized.
+
+            Returns
+            -------
+            int
+            """
+            return self._ts_init
+        
+    
     def influx_success(self, conf: tuple[str, str, str], data: str):
         self.log.debug(f"influx_success: Written batch: {conf}")
         return
@@ -218,6 +258,9 @@ class PUT101Strategy(Strategy):
 
     def ingress_event(self, event: Event):
         sender = self.questdb
+        
+        real_time_ns = int(datetime.datetime.now().timestamp() * 1e9) 
+        
         try:
             sender.row(
                 'events',
@@ -229,6 +272,7 @@ class PUT101Strategy(Strategy):
                 columns={
                     'event': str(event),
                     'identifier': self.conf.IDENTIFIER,
+                    'real_time_ts': unix_nanos_to_dt(real_time_ns),
                 },
                 at=unix_nanos_to_dt(event.ts_event)
             )
@@ -258,7 +302,7 @@ class PUT101Strategy(Strategy):
                 },
                 at=unix_nanos_to_dt(bar.ts_event)
             )
-            
+        
         except IngressError as e:
             self.log.error(f"IngressError cannot write to questdb: {e}")
             raise Exception(f"ingress_bar cannot write to questdb: {e}")
@@ -304,7 +348,7 @@ class PUT101Strategy(Strategy):
             return False
 
         self.subscribe_bars(self.bar_type)
-        
+        self.subscribe_data(DataType(self.MyData))
         self.risk_manager.on_start()
         
 
@@ -321,8 +365,20 @@ class PUT101Strategy(Strategy):
         self.trade_manager.on_position_event(event)
 
     def on_event(self, event: Event):
-        return
-
+        #self.ingress_event(event)
+        pass
+    
+    def on_signal(self, signal):
+        #self.ingress_event(signal)
+        pass 
+    
+    def on_data(self, data):
+        if isinstance(data, PUT101Strategy.MyData):
+            self.ingress_event(data)
+        else:
+            # filtering out depending on optimization/defined list
+            self.ingress_event(data)
+    
     def on_bar(self, bar: Bar) -> bool:
         """
         :param bar:
@@ -390,6 +446,11 @@ class PUT101Strategy(Strategy):
             sell_signal = True
 
 
+        if buy_signal or sell_signal:
+            # send custom data event to nautilus
+            val = "buy_signal" if buy_signal else "sell_signal"
+            self.publish_data(DataType(PUT101Strategy.MyData), PUT101Strategy.MyData('entry_signal', val, bar.ts_event, bar.ts_event))
+
         SL_DIST = self.conf.tp_pips * PIP_SIZE
         if self.conf.risk_reward != 0:
             TP_DIST = SL_DIST * self.conf.risk_reward
@@ -403,7 +464,7 @@ class PUT101Strategy(Strategy):
                 entry = bar.close.as_double()
                 sl = bar.close.as_double() - SL_DIST
                 tp = bar.close.as_double() + TP_DIST
-                qty = self.risk_manager.get_quantity_balance(entry, sl, tp, 0.05)
+                qty = self.risk_manager.get_quantity_(entry, sl, tp, 0.05)
                 self.trade_manager.buy(entry,sl,tp,qty)
                 
             if sell_signal:
@@ -411,7 +472,7 @@ class PUT101Strategy(Strategy):
                 entry = bar.close.as_double()
                 sl = bar.close.as_double() + SL_DIST
                 tp = bar.close.as_double() - TP_DIST
-                qty = self.risk_manager.get_quantity_balance(entry, sl, tp, 0.05)        
+                qty = self.risk_manager.get_quantity_(entry, sl, tp, 0.05)        
                 self.trade_manager.sell(entry,sl,tp,qty)
 
         # INFLUX
@@ -532,8 +593,6 @@ class PUT101Strategy(Strategy):
             self.log.info("duckdb closed")
     
     def on_dispose(self):
-        del self.write_api
-        del self.client    
         self.log.info("on_dispose")
 
     def write_position(self, bar: Bar, position: Position):
@@ -606,21 +665,12 @@ class RiskManager:
         self.log = strategy.log
         self.log.info("RiskManager.__init__")
         self.strategy = strategy
-        self.portfolio: Portfolio
-        self.account: Account
-        self.balance: AccountBalance
-        self.balance_total: float
         
     
     def on_start(self):
         self.log.info("RiskManager.on_start") 
-        self.portfolio = self.strategy.portfolio
-        self.account = self.portfolio.account(self.strategy.venue)
-        self.balance = self.account.balance(self.account.currencies()[0])
-        self.balance_total = self.balance.total.as_double()
-        self.log.info(f"balance_total: {self.balance_total}")
         
-    def get_quantity_balance(self, entry: float, sl: float, tp: float, risk: float):
+    def get_quantity_(self, entry: float, sl: float, tp: float, risk: float):
         """
         Calculate position size based on risk percentage
         Parameters:
@@ -628,30 +678,33 @@ class RiskManager:
         - sl: Stop loss price
         - risk_percentage: Risk as decimal (e.g., 0.01 for 1%)
         """
-        self.log.info(f"RiskManager.get_quantity_balance: entry={entry}, sl={sl}, tp={tp}, risk={risk}")
+        self.log.info(f"RiskManager.get_quantity_: entry={entry}, sl={sl}, tp={tp}, risk={risk}")
+        account:Account = self.strategy.portfolio.account(self.strategy.venue)
+        balance = account.balance(account.currencies()[0])
+        balance_total = balance.total.as_double()
         
-        if self.balance_total == 0:
+        if entry == 0 or sl == 0 or tp == 0 or risk == 0 or (entry == sl):
+            self.log.error("Invalid entry, sl, tp or risk")
             return 0
-        risk_amount = self.balance_total * risk
-        self.log.info(f"RiskManager.get_quantity_balance: risk_amount={risk_amount}")
-        quantity = risk_amount / abs(entry - sl)
-        self.log.info(f"RiskManager.get_quantity_balance: quantity={quantity}")
+        
+        risk_amount = balance_total * risk
+        self.log.info(f"RiskManager.get_quantity_: risk_amount={risk_amount}")
         i: Instrument = self.strategy.instrument
         
         # Calculate pip value and risk per pip
         pip_value = i.lot_size.as_double() * i.price_increment.as_double()
-        self.log.info(f"RiskManager.get_quantity_balance: pip_value={pip_value}")
+        self.log.info(f"RiskManager.get_quantity_: pip_value={pip_value}")
         
         # Calculate stop loss distance in pips
         sl_distance = abs(entry - sl) / i.price_increment.as_double()
-        self.log.info(f"RiskManager.get_quantity_balance: sl_distance={sl_distance}")
+        self.log.info(f"RiskManager.get_quantity_: sl_distance={sl_distance}")
         # Calculate required position size in base units
         raw_units = (risk_amount / (sl_distance * pip_value)) * i.lot_size.as_double()
-        self.log.info(f"RiskManager.get_quantity_balance: raw_units={raw_units}")
+        self.log.info(f"RiskManager.get_quantity_: raw_units={raw_units}")
         
         # Round to instrument's size increment
         units = round(raw_units / i.size_increment.as_double()) * i.size_increment.as_double()
-        self.log.info(f"RiskManager.get_quantity_balance: units={units}")
+        self.log.info(f"RiskManager.get_quantity_: units={units}")
         
         # Ensure within instrument limits
         units = max(i.min_quantity.as_double(), 
@@ -659,7 +712,7 @@ class RiskManager:
         
         lots = units / i.lot_size.as_double()
         
-        self.log.info(f"Risk calculation: Balance={self.balance_total}, "
+        self.log.info(f"Risk calculation: Balance Total={balance_total}, "
                      f"Risk Amount={risk_amount}, Units={units}, Lots={lots}")
         
-        return i.make_qty(quantity)
+        return i.make_qty(units)

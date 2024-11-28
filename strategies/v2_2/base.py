@@ -617,7 +617,6 @@ class RiskManager:
         self.portfolio = self.strategy.portfolio
         self.account = self.portfolio.account(self.strategy.venue)
         self.balance = self.account.balance(self.account.currencies()[0])
-        self.balance_total = self.balance.total.as_double()
         self.log.info(f"balance_total: {self.balance_total}")
         
     def get_quantity_balance(self, entry: float, sl: float, tp: float, risk: float):
@@ -630,9 +629,13 @@ class RiskManager:
         """
         self.log.info(f"RiskManager.get_quantity_balance: entry={entry}, sl={sl}, tp={tp}, risk={risk}")
         
-        if self.balance_total == 0:
+        self.balance = self.account.balance(self.account.currencies()[0])
+        
+        balance_total = self.balance.total.as_double()
+        
+        if balance_total == 0:
             return 0
-        risk_amount = self.balance_total * risk
+        risk_amount = balance_total * risk
         self.log.info(f"RiskManager.get_quantity_balance: risk_amount={risk_amount}")
         quantity = risk_amount / abs(entry - sl)
         self.log.info(f"RiskManager.get_quantity_balance: quantity={quantity}")
@@ -659,7 +662,7 @@ class RiskManager:
         
         lots = units / i.lot_size.as_double()
         
-        self.log.info(f"Risk calculation: Balance={self.balance_total}, "
+        self.log.info(f"Risk calculation: Balance={balance_total}, "
                      f"Risk Amount={risk_amount}, Units={units}, Lots={lots}")
         
         return i.make_qty(quantity)

@@ -66,6 +66,7 @@ services:
       - GF_PATHS_PLUGINS=/var/lib/grafana/plugins
       - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
       - GF_DATASOURCE_INFLUXDB_URL=http://influxdb:8086
+      - GF_DASHBOARDS_MIN_REFRESH_INTERVAL=100ms
 
   questdb:
     image: questdb/questdb:latest
