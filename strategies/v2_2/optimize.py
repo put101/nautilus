@@ -6,6 +6,11 @@ from dataclasses import dataclass, field
 from omegaconf import OmegaConf
 from hydra import initialize, compose
 from hydra.core.config_store import ConfigStore
+from hydra import initialize, compose
+
+from hydra.core.global_hydra import GlobalHydra
+
+
 import pandas as pd
 import optuna
 import dotenv
@@ -49,6 +54,7 @@ class BacktestConfig:
     project_root: str = os.environ.get("NAUTILUS_PROJECT_ROOT", MISSING)
     catalog_path: str = f"{project_root}/data/catalog"
     optimization_goals: list = field(default_factory=list) # list[tuple[str,str]] metric name, metric optim direction
+
 
 # Register configuration schema
 cs = ConfigStore.instance()
@@ -113,7 +119,7 @@ def create_backtest_config(trial: optuna.Trial, config: BacktestConfig) -> Backt
                                   log_colors=True,
                                   log_file_format="json",
                                   log_directory=f"{config.project_root}/logs",
-                                  log_file_name=f"{config.study_name}_trial_{trial.number}.log",
+                                  log_file_name=f"{config.study_name}_trial_{trial.number}.json",
                                   log_component_levels={
                                       f'OrderMatchingEngine({venue.value})' : 'WARN',
                                     },
