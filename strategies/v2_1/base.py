@@ -67,11 +67,11 @@ from reactivex.scheduler import ThreadPoolScheduler
 from questdb.ingress import Sender, IngressError, TimestampNanos, TimestampMicros
 import sys
 import datetime
-
-from .trade_manager import TradeManager
-from . import utils
-from .put101.utils import TrackerMulti
 from dataclasses import dataclass
+
+from trade_manager import TradeManager
+import utils
+from put101.utils import TrackerMulti
 
 @dataclass  
 class QuestDBConfig:

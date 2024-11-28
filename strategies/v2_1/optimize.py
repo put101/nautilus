@@ -28,28 +28,34 @@ from dataclasses import dataclass
 from typing import List, Tuple
 from omegaconf import MISSING
 
+import logging
+from nautilus_trader.common.component import init_logging, Logger
+
 import pathlib
 import sys
 
-sys.path.append(str(pathlib.Path(__file__).resolve().parent.parent))
+sys.path.append(str(pathlib.Path(__file__).resolve().parent))
 
-# Logging setup
-logger = logging.getLogger()
+# reset logging completely and only use root logger for configuration and a logger 
+# for the script itself without any filters and handler
+# everything is passed and handeled by root, except nautilus own logging setup
+
+logging.basicConfig(level=logging.DEBUG)
+
+logger = logging.getLogger("optimize")
 logger.setLevel(logging.DEBUG)
-log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(log_formatter)
-logger.addHandler(console_handler)
+# reset logging completely and only use root logger for configuration and a logger
 
 logger.info("Optimization script started")
 
-from .base import PUT101StrategyConfig, MainConfig
+from base import PUT101StrategyConfig, MainConfig
 
 @dataclass
 class BacktestConfig:
-    study_name: str = "bt_default_experiment" + "_0"
+    study_name: str = "bt_default_experiment" + "_1"
+    storage: str = "sqlite:///./optuna.db"
     version:str = os.path.basename(pathlib.Path(__file__).parent)
-    n_trials: int = 1
+    n_trials: int = 2
     project_root: str = os.environ.get("NAUTILUS_PROJECT_ROOT", MISSING)
     catalog_path: str = f"{project_root}/data/catalog"
     optimization_goals: list = field(default_factory=list) # list[tuple[str,str]] metric name, metric optim direction
@@ -82,7 +88,6 @@ def create_backtest_config(trial: optuna.Trial, config: BacktestConfig) -> Backt
     start = dt_to_unix_nanos(pd.Timestamp("2020-01-01"))
     end = start + pd.Timedelta(days=3).value
 
-    
     main_conf = MainConfig(
         environment=os.environ.copy(),
         instrument_id=instrument_id.value,
@@ -112,7 +117,17 @@ def create_backtest_config(trial: optuna.Trial, config: BacktestConfig) -> Backt
                 )
             ],
             risk_engine=RiskEngineConfig(bypass=True),
-            logging=LoggingConfig(log_level="WARN", log_level_file="DEBUG"),
+            logging=LoggingConfig(log_level="ERROR", 
+                                  log_level_file="DEBUG", 
+                                  print_config=True,
+                                  log_directory=f"{config.project_root}/logs",
+                                  log_file_name=f"{config.study_name}_trial_{trial.number}.log",
+                                  log_colors=True,
+                                  log_component_levels={
+                                    },
+                                  bypass_logging=False,
+                                  log_file_format="%(asctime)s - %(levelname)s - %(message)s",
+                                  ),
         ),
         data=[
             BacktestDataConfig(
@@ -136,40 +151,86 @@ def create_backtest_config(trial: optuna.Trial, config: BacktestConfig) -> Backt
     )
 
 
-def objective(trial: optuna.Trial, config: BacktestConfig) -> float:
+def objective(trial: optuna.Trial, config: BacktestConfig) -> list[float]:
     """Objective function for optimization."""
     from time import sleep
     
     run_config = create_backtest_config(trial, config)
     node = BacktestNode([run_config])
+    
 
     print(f"Running trial {trial.number}")
-    sleep(2)
     
     try:
         results = node.run(raise_exception=True)
         res: BacktestResult = results[0]
-        logger.info(f"Trial {trial.number} completed: {res.stats_pnls}")
-        print(f"Trial {trial.number} completed: {res.stats_pnls}")
-        print(f"DONE")
-        metrics = res.stats_pnls['USD']['Profit Factor']  # Example metric
-        return metrics
+        logger.info(f"Trial {trial.number} completed: {res}")        
+        metrics = metrics_from_result(res)
+        
+        return [metrics[m] for m,_ in config.optimization_goals]
+
     except Exception as e:
         logger.error(f"Trial failed: {e}")
         raise e
     finally:
         logger.info(f"disposing backtest node")
         node.dispose()
+        del node
 
 
 def run_optimization(cfg: BacktestConfig) -> None:
     """Run optimization using Optuna."""
     study = optuna.create_study(
-        study_name=cfg.study_name, directions=["maximize"], load_if_exists=True
+        study_name=cfg.study_name, directions=[ d for n,d in cfg.optimization_goals], 
+        storage=cfg.storage,
+        load_if_exists=True
     )
     study.optimize(lambda t: objective(t, cfg), n_trials=cfg.n_trials)
-    logger.info(f"Best trial: {study.best_trial}")
+    logger.info(f"Best trials: {study.best_trials}")
+    
+    for t in study.best_trials:
+        logger.info(f"Trial {t.number} - {t.values}")
+        logger.info(f"Trial {t.number} - {t.params}")
+        logger.info(f"Trial {t.number} - {t.user_attrs}")
 
+
+def metrics_from_result(res: BacktestResult) -> Dict[str, Any]:
+    """
+    is a dataclass
+    BacktestResult(trader_id='BACKTESTER-020', machine_id='Tobiass-MacBook-Air.local', 
+        run_config_id='c9c59a0e8852e56362ca50bc5b19fbe35b09db228fd72646c0b6a2e8823c0bbb', 
+        instance_id='3ce5c3c2-b3a8-44a6-a73e-58c3414a7049', run_id='785f94d0-c6a2-47fa-9c46-2ebc4cc3f77c', 
+        run_started=1731712539884419000, run_finished=1731712540631042000, backtest_start=1577923200490000000, 
+        backtest_end=1578095873505000000, elapsed_time=172673.015, iterations=0, total_events=42, total_orders=15, 
+        total_positions=5, 
+        stats_pnls={'USD': {
+            'PnL (total)': 521.89, 
+            'PnL% (total)': 5.218899999999994, 
+            'Max Winner': 469.53, 
+            'Avg Winner': 469.53, 
+            'Min Winner': 469.53, 
+            'Min Loser': -2.23, 
+            'Avg Loser': -139.05666666666667, 
+            'Max Loser': -210.46, 
+            'Expectancy': 104.37800000000001, 
+            'Win Rate': 0.4
+        }}, 
+        stats_returns={
+            'Returns Volatility (252 days)': 0.00040042265577980643, 
+            'Average (Return)': 0.0012052330297631442, 
+            'Average Loss (Return)': -0.0018180739706978896, 
+            'Average Win (Return)': 0.004228540030224178, 
+            'Sharpe Ratio (252 days)': 0.16610902877391906, 
+            'Sortino Ratio (252 days)': nan, 
+            'Profit Factor': 2.325834976120912, 
+            'Risk Return Ratio': 0.3139602761997963
+        })
+    """
+    metrics = res.__dict__
+    metrics.update(res.stats_pnls["USD"])
+    metrics.update(res.stats_returns)
+        
+    return metrics
 
 if __name__ == "__main__":
     dotenv.load_dotenv(verbose=True, override=True)
@@ -183,10 +244,12 @@ if __name__ == "__main__":
     validate_environment(["NAUTILUS_PROJECT_ROOT"])
 
     initialize(config_path=None)
-    cfg = compose(config_name="backtest_config", overrides=[
+    cfg: BacktestConfig = compose(config_name="backtest_config", overrides=[
         f"project_root={PROJECT_ROOT}",
         f"catalog_path={CATALOG_PATH}",
     ])
+    cfg.optimization_goals = [("PnL% (total)", "maximize"), ("Win Rate", "maximize")]
+    
     logger.info(f"Loaded configuration: {OmegaConf.to_yaml(cfg)}")
 
     run_optimization(cfg)

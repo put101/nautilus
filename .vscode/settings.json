@@ -1,1 +1,5 @@
-{}
+{
+    "python.analysis.extraPaths": [
+        "./strategies/v2_1"
+    ]
+}

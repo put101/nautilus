@@ -64,6 +64,8 @@ class TradeResult(enum.Enum):
     SL = 3
     ERROR = 4
 
+
+
 class SimpleTrade(StateMachine):
 
     def __init__(self, strategy: Strategy, write_points, order_list: OrderList):
