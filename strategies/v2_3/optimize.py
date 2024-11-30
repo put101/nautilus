@@ -77,7 +77,7 @@ def create_backtest_config(trial: optuna.Trial, config: BacktestConfig) -> Backt
     bb_period = trial.suggest_int("bb_period", scfg.bb_period_min, scfg.bb_period_max)
     
     bb_std = trial.suggest_float("bb_std", 1.0, 3.0)
-    tp_pips = trial.suggest_int("tp_pips", 0, 50)
+    #tp_pips = trial.suggest_int("tp_pips", 0, 50)
     sl_pips = trial.suggest_int("sl_pips", 5, 100)
     risk_reward = trial.suggest_float("risk_reward", 0.1, 10.0)
         
@@ -101,7 +101,7 @@ def create_backtest_config(trial: optuna.Trial, config: BacktestConfig) -> Backt
             (bb_period, bb_std),
         ],
         sl_pips=sl_pips,
-        tp_pips=tp_pips,
+        tp_pips=0,
         risk_reward=risk_reward,
     )
     
