@@ -430,8 +430,6 @@ class PUT101Strategy(Strategy):
         SL_POINTS = ATR_SL_FACTOR * (50 / POINT_SIZE)
         SL_POINTS = max(SL_POINTS, MIN_SL_POINTS)
 
-        TP_POINTS = SL_POINTS * TP_FACTOR
-
         RISK_PER_TRADE = self.max_dd / 2
         RISK = RISK_PER_TRADE * balance_total
 
@@ -451,13 +449,13 @@ class PUT101Strategy(Strategy):
             val = "buy_signal" if buy_signal else "sell_signal"
             self.publish_data(DataType(PUT101Strategy.MyData), PUT101Strategy.MyData('entry_signal', val, bar.ts_event, bar.ts_event))
 
-        SL_DIST = self.conf.tp_pips * PIP_SIZE
+        SL_DIST = self.conf.sl_pips * PIP_SIZE
         if self.conf.risk_reward != 0:
             TP_DIST = SL_DIST * self.conf.risk_reward
         else:
-            TP_DIST = self.conf.tp_pips * PIP_SIZE
+            raise NotImplementedError("risk_reward cannot be 0")
+        
         n_trades = len(self.trade_manager.trades)
-
         if is_flat and n_trades == 0:
             if buy_signal:
                 self.log.info(f"SL_DIST: {SL_DIST}, TP_DIST: {TP_DIST}")

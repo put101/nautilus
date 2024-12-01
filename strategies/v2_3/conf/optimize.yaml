@@ -1,4 +1,4 @@
-study_name: "optimize_1"
+study_name: "optimize_3"
 storage: "sqlite:///./optuna.db"
 version: ???
 n_trials: 16
@@ -11,5 +11,5 @@ end_days: null
 
 optimization_goals:
   - ["PnL% (total)", "maximize"]
-  - ["Win Rate", "maximize"]
+  #- ["Win Rate", "maximize"]
   

@@ -8,7 +8,6 @@ import numpy as np
 from datetime import datetime, date
 import os
 
-from nautilus_trader.model.currency import Currency
 from nautilus_trader.model.data import BarType, Bar
 from nautilus_trader.model.identifiers import Venue
 from nautilus_trader.model.instruments import CurrencyPair
