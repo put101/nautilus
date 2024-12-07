@@ -8,3 +8,9 @@ sl_pips_min: 5
 sl_pips_max: 100
 risk_reward_min: 0.1
 risk_reward_max: 10.0
+
+session_filter:
+  _target_: "base:TimeFilter"
+  start: "06:00:00"
+  end: "10:00:00"
+  tz: "GMT"

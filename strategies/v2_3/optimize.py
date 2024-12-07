@@ -5,9 +5,8 @@ from typing import List, Dict, Any
 from dataclasses import dataclass, field
 from omegaconf import DictConfig, OmegaConf
 from hydra import initialize, compose
+from hydra.utils import instantiate, get_class
 from hydra.core.config_store import ConfigStore
-from hydra import initialize, compose
-
 from hydra.core.global_hydra import GlobalHydra
 
 
@@ -27,7 +26,7 @@ from nautilus_trader.config import (
     LoggingConfig,
 )
 from nautilus_trader.core.datetime import dt_to_unix_nanos
-from nautilus_trader.model.data import QuoteTick
+from nautilus_trader.model.data import QuoteTick, Bar
 from nautilus_trader.model.identifiers import Venue, InstrumentId, Symbol
 from dataclasses import dataclass
 from typing import List, Tuple
@@ -46,7 +45,8 @@ logger = Logger("MyCoolLogger")
 
 logger.info("Optimization script started")
 
-from base import PUT101StrategyConfig, MainConfig
+from base import PUT101StrategyConfig, PUT101Strategy, MainConfig
+from base import TimeFilter
 
 @dataclass
 class BacktestConfig:
@@ -55,7 +55,12 @@ class BacktestConfig:
     n_trials: int
     study_name: str # "bt_default_experiment" + "_1"
     storage: str # sqlite:///example.db
+    start_dt: str
+    end_dt: str
     version: str = os.path.basename(pathlib.Path(__file__).parent)
+    venue: str = "SIM"
+    symbol: str = "XAUUSD"
+    data_cls: str = "QuoteTick" # Bar, QuoteTick
     optimization_goals: list = field(default_factory=list) # list[tuple[str,str]] metric name, metric optim direction
 
 cs = ConfigStore.instance()
@@ -69,7 +74,7 @@ def validate_environment(env_vars: List[str]) -> None:
         raise EnvironmentError(f"Set the following environment variables: {missing_vars}")
 
 
-def create_backtest_config(trial: optuna.Trial, config: BacktestConfig) -> BacktestRunConfig:
+def create_backtest_config(trial: optuna.Trial, cfg: BacktestConfig) -> BacktestRunConfig:
     """Create a backtest configuration for a specific trial."""
     
     scfg = compose(config_name="strategy")
@@ -81,42 +86,46 @@ def create_backtest_config(trial: optuna.Trial, config: BacktestConfig) -> Backt
     sl_pips = trial.suggest_int("sl_pips", 5, 100)
     risk_reward = trial.suggest_float("risk_reward", 0.1, 10.0)
         
-    venue = Venue("SIM_EIGHTCAP")
-    symbol = Symbol("EURUSD")
+    venue = Venue(cfg.venue)
+    symbol = Symbol(cfg.symbol)
     instrument_id = InstrumentId(symbol, venue)
     start = dt_to_unix_nanos(pd.Timestamp(cfg.start_dt))
     end = dt_to_unix_nanos(pd.Timestamp(cfg.end_dt))
     if cfg.end_dt is None:
         end = start + pd.Timedelta(days=cfg.end_days).value
 
-    IDENTIFIER=f"{config.study_name}_trial_{trial.number}"
+    IDENTIFIER=f"{cfg.study_name}_trial_{trial.number}"
     trial.set_user_attr("IDENTIFIER", IDENTIFIER)
 
     main_conf = MainConfig(
         environment=os.environ.copy(),
-        instrument_id=instrument_id.value,
+        instrument_id=instrument_id,
         bar_type=f"{instrument_id}-5-MINUTE-BID-INTERNAL",
-        IDENTIFIER=f"{config.study_name}_trial_{trial.number}",
+        IDENTIFIER=f"{cfg.study_name}_trial_{trial.number}",
         bb_params=[
             (bb_period, bb_std),
         ],
         sl_pips=sl_pips,
         tp_pips=0,
         risk_reward=risk_reward,
+        session_filter=TimeFilter(
+            start=scfg.session_filter.start,
+            end=scfg.session_filter.end,
+            tz=scfg.session_filter.tz,
+        )
     )
     
     dict_conf = dict(
         main=main_conf,
     )
     
-
-    return BacktestRunConfig(
+    btconf= BacktestRunConfig(
         engine=BacktestEngineConfig(
             trader_id=f"BACKTESTER-{trial.number:03d}",
             strategies=[
                 ImportableStrategyConfig(
-                    config_path=f"{config.version}.base:PUT101StrategyConfig",
-                    strategy_path=f"{config.version}.base:PUT101Strategy",
+                    config_path=f"{cfg.version}.base:PUT101StrategyConfig",
+                    strategy_path=f"{cfg.version}.base:PUT101Strategy",
                     config=dict_conf,
                 )
             ],
@@ -126,8 +135,8 @@ def create_backtest_config(trial: optuna.Trial, config: BacktestConfig) -> Backt
                                   print_config=True,
                                   log_colors=True,
                                   log_file_format="json",
-                                  log_directory=f"{config.project_root}/logs",
-                                  log_file_name=f"{config.study_name}_trial_{trial.number}.json",
+                                  log_directory=f"{cfg.project_root}/logs",
+                                  log_file_name=f"{cfg.study_name}_trial_{trial.number}.json",
                                   log_component_levels={
                                       f'OrderMatchingEngine({venue.value})' : 'WARN',
                                     },
@@ -135,9 +144,16 @@ def create_backtest_config(trial: optuna.Trial, config: BacktestConfig) -> Backt
                                   ),
         ),
         data=[
+            #BacktestDataConfig(
+            #   catalog_path=config.catalog_path,
+            #    data_cls=QuoteTick,
+            #    instrument_id=instrument_id,
+            #    start_time=start,
+            #    end_time=end,
+            #),
             BacktestDataConfig(
-                catalog_path=config.catalog_path,
-                data_cls=QuoteTick,
+                catalog_path=cfg.catalog_path,
+                data_cls=get_class(cfg.data_cls),
                 instrument_id=instrument_id,
                 start_time=start,
                 end_time=end,
@@ -154,6 +170,9 @@ def create_backtest_config(trial: optuna.Trial, config: BacktestConfig) -> Backt
             )
         ],
     )
+    logger.info(f"Created backtest config: ${str(btconf)}") 
+    
+    return btconf
 
 
 def objective(trial: optuna.Trial, config: BacktestConfig) -> list[float]:
@@ -254,7 +273,8 @@ if __name__ == "__main__":
                                   ])
     
     cfg = OmegaConf.create(OmegaConf.to_container(cfg, resolve=True))
-    
-    logger.info(f"Loaded configuration: {OmegaConf.to_yaml(cfg)}")
+    logger.info(f"Optimization config: {cfg}")
+    cfg = instantiate(cfg)
+    logger.info(f"Instantiated Optimization config: {cfg}")
 
     run_optimization(cfg)

@@ -3,6 +3,8 @@ from dataclasses import field
 from datetime import timedelta
 from decimal import Decimal
 import enum
+from typing import Optional
+import pandas as pd 
 import duckdb
 from nautilus_trader.core.nautilus_pyo3 import (
     OrderSide,
@@ -80,9 +82,44 @@ from trade_manager import TradeManager
 import utils
 from put101.utils import TrackerMulti
 
+import time
+
+# Get the current local time zone offset (in seconds) from UTC
+local_offset = time.altzone if time.daylight else time.timezone
+print("Local time zone offset (seconds from UTC):", local_offset)
+
+# You can get the current time zone abbreviation (e.g., 'UTC', 'EST')
+local_timezone_abbr = time.tzname[0]
+print("Local time zone abbreviation:", local_timezone_abbr)
+
 @dataclass  
 class QuestDBConfig:
     conf: str = "http::addr=localhost:9000;"
+
+class TimeFilter:
+    start: str
+    end: str
+    tz: str = "UTC"
+    
+    def __post_init__(self):
+        # Convert string times to time objects
+        self.start_time = datetime.strptime(self.start, '%H:%M:%S').time()
+        self.end_time = datetime.strptime(self.end, '%H:%M:%S').time()
+        
+        # Get timezone
+        self.tzinfo = pytz.timezone(self.tz)
+
+    def is_in_session(self, ts: pd.Timestamp) -> bool:
+        # Convert the timestamp to the session's timezone
+        local_dt = ts.tz_localize('UTC').tz_convert(self.tzinfo)
+        
+        # Check if the time falls within the session
+        if self.start_time <= self.end_time:
+            # Normal case where session does not span midnight
+            return self.start_time <= local_dt.time() <= self.end_time
+        else:
+            # Session spans midnight
+            return self.start_time <= local_dt.time() or local_dt.time() <= self.end_time
 
 @dataclass
 class MainConfig:
@@ -95,6 +132,7 @@ class MainConfig:
     instrument_id: str
     bar_type: str
     IDENTIFIER: str
+    session_filter: Optional[TimeFilter] = None
     emulation_trigger: str = "NO_TRIGGER"
     manage_contingent_orders = True
     IGNORE_SINGLE_PRICE_BARS: bool = True
@@ -208,6 +246,10 @@ class PUT101Strategy(Strategy):
         self.db.execute('CREATE TABLE IF NOT EXISTS events_str (ts TIMESTAMP, data STRING)')
         self.db.execute('CREATE TABLE IF NOT EXISTS events (ts TIMESTAMP, data JSON)')
         self.log.info('PUT101Strategy.__init__  done')
+        
+        self.log.debug('setting up filters')
+        if self.conf.session_filter:
+            self.log.debug(f"Session filter: {self.conf.session_filter}")
         
     class MyData(Data):
         """Entry Signal data."""
@@ -347,8 +389,10 @@ class PUT101Strategy(Strategy):
             self.abort(msg)
             return False
 
+        #self.subscribe_bars(self.bar_type)
         self.subscribe_bars(self.bar_type)
         self.subscribe_data(DataType(self.MyData))
+        
         self.risk_manager.on_start()
         
 
@@ -436,12 +480,20 @@ class PUT101Strategy(Strategy):
         #qty = self.instrument.make_qty(100_000)
         buy_signal = False
         sell_signal = False
-        ts = maybe_unix_nanos_to_dt(bar.ts_event)
+        ts: pd.Timestamp = maybe_unix_nanos_to_dt(bar.ts_event)
 
-        if all(b.lower > bar.close.as_double() for b in self.bands):
-            buy_signal = True
-        if all(b.upper < bar.close.as_double() for b in self.bands):
-            sell_signal = True
+        # session filter
+        rules = [True]
+        if self.conf.session_filter: 
+            session_rule = self.conf.session_filter.is_in_session(ts)
+            rules.extend([session_rule])
+            
+        
+        if all(rules):
+            if all(b.lower > bar.close.as_double() for b in self.bands):
+                buy_signal = True
+            if all(b.upper < bar.close.as_double() for b in self.bands):
+                sell_signal = True
 
 
         if buy_signal or sell_signal:
