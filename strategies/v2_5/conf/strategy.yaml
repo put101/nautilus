@@ -1,0 +1,10 @@
+bb_period_min: 1
+bb_period_max: 200
+bb_std_min: 1.0
+bb_std_max: 3.0
+tp_pips_min: 0
+tp_pips_max: 50
+sl_pips_min: 5
+sl_pips_max: 100
+risk_reward_min: 0.1
+risk_reward_max: 10.0

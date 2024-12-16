@@ -15,7 +15,7 @@ symbol: "EURUSD"
 data_cls: "nautilus_trader.model.data.QuoteTick"
   # "nautilus_trader.model.data.Bar"
 
-bar_type: "${symbol}.${venue}-5-MINUTE-MID-INTERNAL"
+bar_type: "${symbol}.${venue}-5-MINUTE-BID-INTERNAL"
 #bar_type: "${symbol}.${venue}-5-MINUTE-MID-${data_cls.${defaults.0}.type.upper()}"
 
 optimization_goals:

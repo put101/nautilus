@@ -487,7 +487,8 @@ class PUT101Strategy(Strategy):
         if self.conf.session_filter: 
             session_rule = self.conf.session_filter.is_in_session(ts)
             rules.extend([session_rule])
-            
+        
+        
         
         if all(rules):
             if all(b.lower > bar.close.as_double() for b in self.bands):
