@@ -56,7 +56,7 @@ class PointWriter:
             .field("side", position.side.value)
             .field("quantity", position.quantity.as_double())
             .field("unrealized_pnl", position.unrealized_pnl(bar.close).as_double())
-            .field("commission", position.commission)
+            .field("sum_commissions", sum(c.as_double() for c in position.commissions()))
             .time(bar.ts_event, WritePrecision.NS)
         )
         self.write_points([position_data])

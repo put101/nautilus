@@ -83,6 +83,39 @@ from put101.utils import TrackerMulti
 from point_writer import PointWriter # type: ignore
 from ingress_writer import IngressWriter # type: ignore
 
+class MyData(Data):
+        """Entry Signal data."""
+        def __init__(self, data_type, data, ts_event: int, ts_init: int):
+            self.data_type=data_type
+            self.data = data
+            self._ts_event = ts_event
+            self._ts_init = ts_init
+
+        def __repr__(self):
+            return f"MyData{self.data_type}(data={self.data})"
+        
+        @property
+        def ts_event(self) -> int:
+            """
+            UNIX timestamp (nanoseconds) when the data event occurred.
+
+            Returns
+            -------
+            int
+            """
+            return self._ts_event
+
+        @property
+        def ts_init(self) -> int:
+            """
+            UNIX timestamp (nanoseconds) when the object was initialized.
+
+            Returns
+            -------
+            int
+            """
+            return self._ts_init
+
 @dataclass  
 class QuestDBConfig:
     conf: str = "http::addr=localhost:9000;"
@@ -205,42 +238,8 @@ class PUT101Strategy(Strategy):
         self.log.info('PUT101Strategy.__init__  connecting to duckdb')
         self.db = duckdb.connect(self.conf.duckdb)
         self.log.info('PUT101Strategy.__init__  done')
-        self.point_writer = None
-        self.ingress_writer = None
-        
-    class MyData(Data):
-        """Entry Signal data."""
-        def __init__(self, data_type, data, ts_event: int, ts_init: int):
-            self.data_type=data_type
-            self.data = data
-            self._ts_event = ts_event
-            self._ts_init = ts_init
-
-        def __repr__(self):
-            return f"MyData{self.data_type}(data={self.data})"
-        
-        @property
-        def ts_event(self) -> int:
-            """
-            UNIX timestamp (nanoseconds) when the data event occurred.
-
-            Returns
-            -------
-            int
-            """
-            return self._ts_event
-
-        @property
-        def ts_init(self) -> int:
-            """
-            UNIX timestamp (nanoseconds) when the object was initialized.
-
-            Returns
-            -------
-            int
-            """
-            return self._ts_init
-        
+        self.point_writer: PointWriter = None
+        self.ingress_writer:IngressWriter = None    
     
     def influx_success(self, conf: tuple[str, str, str], data: str):
         self.log.debug(f"influx_success: Written batch: {conf}")
@@ -290,7 +289,7 @@ class PUT101Strategy(Strategy):
         self.questdb.establish()
 
         self.point_writer = PointWriter(self.write_api, self.conf.bucket, self.log)
-        self.ingress_writer = IngressWriter(self.questdb, self.log)
+        self.ingress_writer = IngressWriter(self.questdb, self.log, self.conf.IDENTIFIER)
         
         self.instrument = self.cache.instrument(self.instrument_id)
 
@@ -302,23 +301,22 @@ class PUT101Strategy(Strategy):
 
         #self.subscribe_bars(self.bar_type)
         self.subscribe_bars(self.bar_type)
-        self.subscribe_data(DataType(self.MyData))
+        self.subscribe_data(DataType(MyData))
         
         self.risk_manager.on_start()
         self.point_writer = PointWriter(self.write_api, self.conf.bucket, self.log)
-        self.ingress_writer = IngressWriter(self.questdb, self.log)
+        self.ingress_writer = IngressWriter(self.questdb, self.log, self.conf.IDENTIFIER)
         
 
     def on_order_event(self, event: OrderEvent):
         self.log.debug(f"OrderEvent: {event}")
-        self.ingress_writer.ingress_event(event, self.instrument_id.value, str(self.venue), self.conf.IDENTIFIER)
+        self.ingress_writer.ingress_event(event)
         
         self.trade_manager.on_order_event(event)
 
     def on_position_event(self, event: PositionEvent):
         self.point_writer.write_points([self.point_writer.make_point(event)])
-        self.ingress_writer.ingress_event(event, self.instrument_id.value, str(self.venue), self.conf.IDENTIFIER)
-
+        self.ingress_writer.ingress_event(event)
         self.trade_manager.on_position_event(event)
 
     def on_event(self, event: Event):
@@ -330,11 +328,11 @@ class PUT101Strategy(Strategy):
         pass 
     
     def on_data(self, data):
-        if isinstance(data, PUT101Strategy.MyData):
-            self.ingress_event(data)
+        if isinstance(data, MyData):
+            self.ingress_writer.ingress_event(data)
         else:
             # filtering out depending on optimization/defined list
-            self.ingress_event(data)
+            self.ingress_writer.ingress_event(data)
     
     def on_bar(self, bar: Bar) -> bool:
         """
@@ -415,7 +413,7 @@ class PUT101Strategy(Strategy):
         if buy_signal or sell_signal:
             # send custom data event to nautilus
             val = "buy_signal" if buy_signal else "sell_signal"
-            self.publish_data(DataType(PUT101Strategy.MyData), PUT101Strategy.MyData('entry_signal', val, bar.ts_event, bar.ts_event))
+            self.publish_data(DataType(MyData), MyData('entry_signal', val, bar.ts_event, bar.ts_event))
 
         SL_DIST = self.conf.sl_pips * PIP_SIZE
         if self.conf.risk_reward != 0:
@@ -623,3 +621,62 @@ class PUT101Strategy(Strategy):
 
         # Submit the order (assuming you have a method like this)
         self.submit_order(order, position_id=position.id, client_id=client_id)
+        
+        
+
+class RiskManager:
+    def __init__(self, strategy: "PUT101Strategy"):
+        self.log = strategy.log
+        self.log.info("RiskManager.__init__")
+        self.strategy = strategy
+        
+    
+    def on_start(self):
+        self.log.info("RiskManager.on_start") 
+        
+    def get_quantity_(self, entry: float, sl: float, tp: float, risk: float):
+        """
+        Calculate position size based on risk percentage
+        Parameters:
+        - entry: Entry price
+        - sl: Stop loss price
+        - risk_percentage: Risk as decimal (e.g., 0.01 for 1%)
+        """
+        self.log.info(f"RiskManager.get_quantity_: entry={entry}, sl={sl}, tp={tp}, risk={risk}")
+        account:Account = self.strategy.portfolio.account(self.strategy.venue)
+        balance = account.balance(account.currencies()[0])
+        balance_total = balance.total.as_double()
+        
+        if entry == 0 or sl == 0 or tp == 0 or risk == 0 or (entry == sl):
+            self.log.error("Invalid entry, sl, tp or risk")
+            return 0
+        
+        risk_amount = balance_total * risk
+        self.log.info(f"RiskManager.get_quantity_: risk_amount={risk_amount}")
+        i: Instrument = self.strategy.instrument
+        
+        # Calculate pip value and risk per pip
+        pip_value = i.lot_size.as_double() * i.price_increment.as_double()
+        self.log.info(f"RiskManager.get_quantity_: pip_value={pip_value}")
+        
+        # Calculate stop loss distance in pips
+        sl_distance = abs(entry - sl) / i.price_increment.as_double()
+        self.log.info(f"RiskManager.get_quantity_: sl_distance={sl_distance}")
+        # Calculate required position size in base units
+        raw_units = (risk_amount / (sl_distance * pip_value)) * i.lot_size.as_double()
+        self.log.info(f"RiskManager.get_quantity_: raw_units={raw_units}")
+        
+        # Round to instrument's size increment
+        units = round(raw_units / i.size_increment.as_double()) * i.size_increment.as_double()
+        self.log.info(f"RiskManager.get_quantity_: units={units}")
+        
+        # Ensure within instrument limits
+        units = max(i.min_quantity.as_double(), 
+                   min(units, i.max_quantity.as_double()))
+        
+        lots = units / i.lot_size.as_double()
+        
+        self.log.info(f"Risk calculation: Balance Total={balance_total}, "
+                     f"Risk Amount={risk_amount}, Units={units}, Lots={lots}")
+        
+        return i.make_qty(units)
