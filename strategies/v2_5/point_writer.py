@@ -7,10 +7,12 @@ from nautilus_trader.model.position import Position
 from nautilus_trader.model.events import PositionEvent
 
 class PointWriter:
-    def __init__(self, write_api: WriteApi, bucket: str, logger):
+    def __init__(self, write_api: WriteApi, bucket: str, logger, identifier):
         self.write_api = write_api
         self.bucket = bucket
         self.logger = logger
+        self.identifier:str = identifier
+        self.logger.info(f"PointWriter initialized with identifier: {self.identifier}")
 
     def write_points(self, points):
         try:
@@ -19,15 +21,14 @@ class PointWriter:
             self.logger.error(f"Error writing to influx: {e}")
             raise e
 
-    def make_point(self, event: PositionEvent):
+    def make_point(self, event: PositionEvent,):
         event_type = type(event).__name__
         json_body = {
             "measurement": "position_events",
             "tags": {
-                "trader_id": event.trader_id,
-                "strategy_id": event.strategy_id,
                 "instrument_id": event.instrument_id,
                 "position_id": event.position_id,
+                "identifier": self.identifier,
             },
             "time": event.ts_event,
             "fields": {
@@ -45,6 +46,7 @@ class PointWriter:
                 "unrealized_pnl": float(event.unrealized_pnl),
             }
         }
+        self.logger.info(f"PointWriter.make_point: {json_body}")
         return json_body
 
     def write_position(self, bar: Bar, position: Position, strategy_id: str):
@@ -60,3 +62,22 @@ class PointWriter:
             .time(bar.ts_event, WritePrecision.NS)
         )
         self.write_points([position_data])
+
+    """
+    def write_position(self, bar: Bar, position: Position):
+
+        position_data = (
+            Point("position")
+            .tag("strategy_id", self.conf.IDENTIFIER)
+            .tag("position_id", position.id.value)
+            .field("instrument_id", position.instrument_id.value)
+            .field("side", position.side.value)
+            .field("quantity", position.quantity.as_double())
+            .field("unrealized_pnl", position.unrealized_pnl(bar.close).as_double())
+            .field("commission", utils.total_commission(position))
+            .time(bar.ts_event, WritePrecision.NS)
+        )
+
+        self.write_points([position_data])
+    """
+    

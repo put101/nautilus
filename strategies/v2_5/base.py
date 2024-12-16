@@ -286,11 +286,7 @@ class PUT101Strategy(Strategy):
         )
         
         self.questdb = Sender.from_conf(self.conf.questdb.conf)
-        self.questdb.establish()
-
-        self.point_writer = PointWriter(self.write_api, self.conf.bucket, self.log)
-        self.ingress_writer = IngressWriter(self.questdb, self.log, self.conf.IDENTIFIER)
-        
+        self.questdb.establish()        
         self.instrument = self.cache.instrument(self.instrument_id)
 
         if self.instrument is None:
@@ -304,7 +300,7 @@ class PUT101Strategy(Strategy):
         self.subscribe_data(DataType(MyData))
         
         self.risk_manager.on_start()
-        self.point_writer = PointWriter(self.write_api, self.conf.bucket, self.log)
+        self.point_writer = PointWriter(self.write_api, self.conf.bucket, self.log, self.conf.IDENTIFIER)
         self.ingress_writer = IngressWriter(self.questdb, self.log, self.conf.IDENTIFIER)
         
 
@@ -440,49 +436,37 @@ class PUT101Strategy(Strategy):
                 self.trade_manager.sell(entry,sl,tp,qty)
 
         # INFLUX
-        if self.conf.write_price_data:
-            # measure time it takes to write to influxdb
+        # measure time it takes to write to influxdb
+        portfolio_point = (
+            Point("portfolio")
+            .tag("strategy_id", self.conf.IDENTIFIER)
+            .field("balance", float(self.portfolio_tracker.sub_indicator.balance))
+            .field("equity", float(self.portfolio_tracker.sub_indicator.equity))
+            .field("margin", float(self.portfolio_tracker.sub_indicator.margin))
+            .field("positions_open_count", cache.positions_open_count())
+            .field("positions_total_count", cache.positions_total_count())
+            .field("orders_open_count", cache.orders_open_count())
+            .field("orders_total_count", cache.orders_total_count())
+            .time(bar.ts_event, WritePrecision.NS)
+        )
+        self.point_writer.write_points([portfolio_point])
 
-            price_point = (
-                Point(str(bar.bar_type))
+        positions_open: list[Position] = cache.positions_open()
+        for pos in positions_open:
+            self.point_writer.write_position(bar, pos, self.conf.IDENTIFIER)
+
+        # write bollinger bands
+        for b in self.bands:
+            point = (
+                Point(f"indicator_bollinger")
                 .tag("strategy_id", self.conf.IDENTIFIER)
-                .field("close", bar.close.as_double())
-                .field("open", bar.open.as_double())
-                .field("high", bar.high.as_double())
-                .field("low", bar.low.as_double())
+                .tag("parameters", str(b))
+                .field("lower", b.lower)
+                .field("middle", b.middle)
+                .field("upper", b.upper)
                 .time(bar.ts_event, WritePrecision.NS)
             )
-
-            portfolio_point = (
-                Point("portfolio")
-                .tag("strategy_id", self.conf.IDENTIFIER)
-                .field("balance", float(self.portfolio_tracker.sub_indicator.balance))
-                .field("equity", float(self.portfolio_tracker.sub_indicator.equity))
-                .field("margin", float(self.portfolio_tracker.sub_indicator.margin))
-                .field("positions_open_count", cache.positions_open_count())
-                .field("positions_total_count", cache.positions_total_count())
-                .field("orders_open_count", cache.orders_open_count())
-                .field("orders_total_count", cache.orders_total_count())
-                .time(bar.ts_event, WritePrecision.NS)
-            )
-            self.point_writer.write_points([price_point, portfolio_point])
-
-            positions_open: list[Position] = cache.positions_open()
-            for pos in positions_open:
-                self.point_writer.write_position(bar, pos, self.conf.IDENTIFIER)
-
-            # write bollinger bands
-            for b in self.bands:
-                point = (
-                    Point(f"indicator_bollinger")
-                    .tag("strategy_id", self.conf.IDENTIFIER)
-                    .tag("parameters", str(b))
-                    .field("lower", b.lower)
-                    .field("middle", b.middle)
-                    .field("upper", b.upper)
-                    .time(bar.ts_event, WritePrecision.NS)
-                )
-                self.point_writer.write_points([point])
+            self.point_writer.write_points([point])
                 
         return True
 
@@ -558,22 +542,6 @@ class PUT101Strategy(Strategy):
     
     def on_dispose(self):
         self.log.info("on_dispose")
-
-    def write_position(self, bar: Bar, position: Position):
-
-        position_data = (
-            Point("position")
-            .tag("strategy_id", self.conf.IDENTIFIER)
-            .tag("position_id", position.id.value)
-            .field("instrument_id", position.instrument_id.value)
-            .field("side", position.side.value)
-            .field("quantity", position.quantity.as_double())
-            .field("unrealized_pnl", position.unrealized_pnl(bar.close).as_double())
-            .field("commission", utils.total_commission(position))
-            .time(bar.ts_event, WritePrecision.NS)
-        )
-
-        self.write_points([position_data])
 
     def close_partial_position(
         self,
