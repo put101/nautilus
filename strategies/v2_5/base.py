@@ -416,12 +416,16 @@ class PUT101Strategy(Strategy):
         # debug log some objects
         self.ingress_writer.ingress_bar(bar, self.instrument_id.value, str(bar.bar_type), str(self.venue), self.conf.IDENTIFIER)
 
-        for i, indicator in enumerate(self.overlay_trackers):
-            self.ingress_indicator(instrument_id=self.instrument_id.value,
-                                   name=indicator.name,
-                                   value=indicator.lower,
-                                   ts=bar.ts_event
-                                   )
+        for tracker in self.overlay_trackers:
+            if tracker.initialized:
+                for name, value in tracker.values.items():
+                    if value:  # Check if there are any values
+                        self.ingress_writer.ingress_tracker(
+                            self.instrument_id.value,
+                            name,
+                            value[-1],  # Get the last value
+                            bar.ts_event
+                        )
 
         if self.conf.IGNORE_SINGLE_PRICE_BARS and bar.is_single_price():
             return False
@@ -691,62 +695,3 @@ class PUT101Strategy(Strategy):
 
         # Submit the order (assuming you have a method like this)
         self.submit_order(order, position_id=position.id, client_id=client_id)
-
-
-
-class RiskManager:
-    def __init__(self, strategy: "PUT101Strategy"):
-        self.log = strategy.log
-        self.log.info("RiskManager.__init__")
-        self.strategy = strategy
-        
-    
-    def on_start(self):
-        self.log.info("RiskManager.on_start") 
-        
-    def get_quantity_(self, entry: float, sl: float, tp: float, risk: float):
-        """
-        Calculate position size based on risk percentage
-        Parameters:
-        - entry: Entry price
-        - sl: Stop loss price
-        - risk_percentage: Risk as decimal (e.g., 0.01 for 1%)
-        """
-        self.log.info(f"RiskManager.get_quantity_: entry={entry}, sl={sl}, tp={tp}, risk={risk}")
-        account:Account = self.strategy.portfolio.account(self.strategy.venue)
-        balance = account.balance(account.currencies()[0])
-        balance_total = balance.total.as_double()
-        
-        if entry == 0 or sl == 0 or tp == 0 or risk == 0 or (entry == sl):
-            self.log.error("Invalid entry, sl, tp or risk")
-            return 0
-        
-        risk_amount = balance_total * risk
-        self.log.info(f"RiskManager.get_quantity_: risk_amount={risk_amount}")
-        i: Instrument = self.strategy.instrument
-        
-        # Calculate pip value and risk per pip
-        pip_value = i.lot_size.as_double() * i.price_increment.as_double()
-        self.log.info(f"RiskManager.get_quantity_: pip_value={pip_value}")
-        
-        # Calculate stop loss distance in pips
-        sl_distance = abs(entry - sl) / i.price_increment.as_double()
-        self.log.info(f"RiskManager.get_quantity_: sl_distance={sl_distance}")
-        # Calculate required position size in base units
-        raw_units = (risk_amount / (sl_distance * pip_value)) * i.lot_size.as_double()
-        self.log.info(f"RiskManager.get_quantity_: raw_units={raw_units}")
-        
-        # Round to instrument's size increment
-        units = round(raw_units / i.size_increment.as_double()) * i.size_increment.as_double()
-        self.log.info(f"RiskManager.get_quantity_: units={units}")
-        
-        # Ensure within instrument limits
-        units = max(i.min_quantity.as_double(), 
-                   min(units, i.max_quantity.as_double()))
-        
-        lots = units / i.lot_size.as_double()
-        
-        self.log.info(f"Risk calculation: Balance Total={balance_total}, "
-                     f"Risk Amount={risk_amount}, Units={units}, Lots={lots}")
-        
-        return i.make_qty(units)
