@@ -2,13 +2,12 @@ import enum
 from datetime import timedelta
 
 from nautilus_trader.core.nautilus_pyo3 import OrderSide, TimeInForce, OrderType, PositionId
-from nautilus_trader.model.events import OrderEvent, OrderRejected, OrderCanceled, OrderAccepted, OrderFilled, \
-    PositionOpened, PositionClosed, PositionEvent
+from nautilus_trader.model.events import OrderEvent, OrderRejected, OrderAccepted, OrderFilled, PositionOpened, PositionClosed
 from nautilus_trader.model.orders import OrderList, Order
 from nautilus_trader.model.position import Position
 from nautilus_trader.portfolio import Portfolio
 from nautilus_trader.cache.base import CacheFacade
-from nautilus_trader.model.objects import Quantity, Currency, Money, AccountBalance
+from nautilus_trader.model.objects import Quantity, AccountBalance
 from nautilus_trader.accounting.accounts.base import Account
 from nautilus_trader.model.instruments.base import Instrument
 from statemachine import StateMachine, State

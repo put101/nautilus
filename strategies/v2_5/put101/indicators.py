@@ -2,8 +2,8 @@ import pandas as pd
 import numpy as np
 from nautilus_trader.indicators.base.indicator import Indicator
 from nautilus_trader.indicators.average.ema import ExponentialMovingAverage
-from nautilus_trader.model.data import Bar, QuoteTick
-from nautilus_trader.core.datetime import unix_nanos_to_dt, maybe_unix_nanos_to_dt
+from nautilus_trader.model.data import Bar
+from nautilus_trader.core.datetime import maybe_unix_nanos_to_dt
 from overrides.overrides import override
 
 
