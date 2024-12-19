@@ -15,13 +15,15 @@ class PointWriter:
         self.logger.info(f"PointWriter initialized with identifier: {self.identifier}")
 
     def write_points(self, points):
+        # Writes points to InfluxDB
         try:
             self.write_api.write(bucket=self.bucket, record=points)
         except InfluxDBError as e:
             self.logger.error(f"Error writing to influx: {e}")
             raise e
 
-    def make_point(self, event: PositionEvent,):
+    def make_point(self, event: PositionEvent):
+        # Creates a point for position events
         event_type = type(event).__name__
         json_body = {
             "measurement": "position_events",
@@ -50,6 +52,7 @@ class PointWriter:
         return json_body
 
     def write_position(self, bar: Bar, position: Position, strategy_id: str):
+        # Writes position data to InfluxDB
         position_data = (
             Point("position")
             .tag("strategy_id", strategy_id)
@@ -80,4 +83,3 @@ class PointWriter:
 
         self.write_points([position_data])
     """
-    

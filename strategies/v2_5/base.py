@@ -82,6 +82,9 @@ import utils
 from put101.utils import TrackerMulti
 from point_writer import PointWriter # type: ignore
 from ingress_writer import IngressWriter # type: ignore
+from portfolio_writer import PortfolioWriter
+from events_writer import EventsWriter  # type: ignore
+import importlib
 
 class MyData(Data):
         """Entry Signal data."""
@@ -122,7 +125,9 @@ class QuestDBConfig:
 
 @dataclass
 class MainConfig:
+    indicators: list[dict]  # List of indicators with class and params
     bb_params: list[tuple[int, float]]  # period  # std
+    rsi_periods: list[int]  # RSI periods
     sl_pips: int
     tp_pips: int
     risk_reward: float
@@ -142,6 +147,9 @@ class MainConfig:
     environment: dict = field(default_factory=dict)
     questdb: QuestDBConfig = field(default_factory=QuestDBConfig)
     duckdb: str = "./nautilus.db"
+    events_writer: dict = field(default_factory=dict)
+    enable_influxdb: bool = True
+    enable_questdb: bool = True
 
 class PUT101StrategyConfig(StrategyConfig):
     main: MainConfig
@@ -187,25 +195,27 @@ class PUT101Strategy(Strategy):
             },
         )
 
-        # indicators
-        self.bands: list[BollingerBands] = [
-            BollingerBands(period, std) for period, std in self.conf.bb_params
-        ]
+        for indicator_conf in self.conf.indicators:
+            indicator_class = self._import_class(indicator_conf["class"])
+            indicator = indicator_class(*indicator_conf["params"])
+            self.indicators.append(indicator)
+            if isinstance(indicator, BollingerBands):
+                self.overlay_trackers.append(
+                    TrackerMulti(indicator, value_getters={
+                        "lower": lambda x: x.lower,
+                        "middle": lambda x: x.middle,
+                        "upper": lambda x: x.upper,
+                    })
+                )
+            elif isinstance(indicator, RelativeStrengthIndex):
+                self.extra_trackers.append(
+                    TrackerMulti(indicator, value_getters={
+                        "rsi": lambda x: x.value,
+                    })
+                )
 
-        bollinger_getters = {
-            "lower": lambda x: x.lower,
-            "middle": lambda x: x.middle,
-            "upper": lambda x: x.upper,
-        }
-
-        for b in self.bands:
-            self.overlay_trackers.append(
-                TrackerMulti(b, value_getters=bollinger_getters)
-            )
-
-        self.indicators.append(self.portfolio_tracker)
-        self.indicators.extend(self.extra_trackers)
         self.indicators.extend(self.overlay_trackers)
+        self.indicators.extend(self.extra_trackers)
 
         self.took_position = False
 
@@ -215,32 +225,20 @@ class PUT101Strategy(Strategy):
         self.trade_manager = TradeManager(self, self.write_points)
         self.risk_manager = RiskManager(self)
 
-        # Initialize the InfluxDB client
-        self.client: InfluxDBClient
-        self.write_api: WriteApi
-        self.callback = None
-        
-        self.log.debug('creating questdb sender')
-        self.questdb: Sender = Sender.from_conf(self.conf.questdb.conf)
-        self.log.debug('established questdb sender')
-        self.questdb.establish()
-        
-        # TEST
-        from .utils import example
-        try: 
-            example(self.conf.questdb.conf)
-        except Exception as e:
-            msg = f'questdb test failed: {e}'
-            self.log.error(msg)
-            raise Exception(msg)
-        self.log.debug('questdb test passed')
-        
-        self.log.info('PUT101Strategy.__init__  connecting to duckdb')
-        self.db = duckdb.connect(self.conf.duckdb)
-        self.log.info('PUT101Strategy.__init__  done')
+        # Initialize writers
+        self.client: InfluxDBClient = None
+        self.write_api: WriteApi = None
+        self.questdb: Sender = None
         self.point_writer: PointWriter = None
-        self.ingress_writer:IngressWriter = None    
-    
+        self.ingress_writer: IngressWriter = None    
+        self.portfolio_writer: PortfolioWriter = None
+        self.events_writer: EventsWriter = None
+
+    def _import_class(self, class_path: str):
+        module_path, class_name = class_path.rsplit(".", 1)
+        module = importlib.import_module(module_path)
+        return getattr(module, class_name)
+
     def influx_success(self, conf: tuple[str, str, str], data: str):
         self.log.debug(f"influx_success: Written batch: {conf}")
         return
@@ -259,34 +257,61 @@ class PUT101Strategy(Strategy):
         # insert on_start
         self.db.execute('INSERT INTO events_str VALUES (NOW(), ?)', [str({'event': 'on_start'})] )
 
-        token = self.conf.environment["INFLUX_TOKEN"]
-        self.log.debug(f"INFLUX_TOKEN: {token}")
+        if self.conf.enable_influxdb:
+            token = self.conf.environment["INFLUX_TOKEN"]
+            self.log.debug(f"INFLUX_TOKEN: {token}")
 
-        self.client = InfluxDBClient(
-            url="http://localhost:8086",
-            token=token,
-            org="main",
-        )
-        
-        
-        self.write_api = self.client.write_api(
-            write_options=WriteOptions(
-                batch_size=10_000,
-                flush_interval=1000,
-                max_retries=0,
-                max_retry_delay=500,
-                max_retry_time=500,
-                exponential_base=2,
-                retry_interval=100,
-                max_close_wait=1_000,
-            ),
-            success_callback=self.influx_success,
-            error_callback=self.influx_error,
-            retry_callback=self.influx_retry,
-        )
-        
-        self.questdb = Sender.from_conf(self.conf.questdb.conf)
-        self.questdb.establish()        
+            self.client = InfluxDBClient(
+                url="http://localhost:8086",
+                token=token,
+                org="main",
+            )
+            
+            self.write_api = self.client.write_api(
+                write_options=WriteOptions(
+                    batch_size=10_000,
+                    flush_interval=1000,
+                    max_retries=0,
+                    max_retry_delay=500,
+                    max_retry_time=500,
+                    exponential_base=2,
+                    retry_interval=100,
+                    max_close_wait=1_000,
+                ),
+                success_callback=self.influx_success,
+                error_callback=self.influx_error,
+                retry_callback=self.influx_retry,
+            )
+            self.point_writer = PointWriter(self.write_api, self.conf.bucket, self.log, self.conf.IDENTIFIER)
+            self.portfolio_writer = PortfolioWriter(
+                influx_write_api=self.write_api,
+                questdb_sender=None,
+                bucket=self.conf.bucket,
+                logger=self.log,
+                identifier=self.conf.IDENTIFIER
+            )
+
+        if self.conf.enable_questdb:
+            self.questdb = Sender.from_conf(self.conf.questdb.conf)
+            self.questdb.establish()
+            self.ingress_writer = IngressWriter(self.questdb, self.log, self.conf.IDENTIFIER)
+            self.portfolio_writer = PortfolioWriter(
+                influx_write_api=None,
+                questdb_sender=self.questdb,
+                bucket=self.conf.bucket,
+                logger=self.log,
+                identifier=self.conf.IDENTIFIER
+            )
+
+        if self.conf.enable_influxdb or self.conf.enable_questdb:
+            self.events_writer = EventsWriter(
+                influx_write_api=self.write_api if self.conf.enable_influxdb else None,
+                questdb_sender=self.questdb if self.conf.enable_questdb else None,
+                bucket=self.conf.bucket,
+                logger=self.log,
+                identifier=self.conf.IDENTIFIER
+            )
+
         self.instrument = self.cache.instrument(self.instrument_id)
 
         if self.instrument is None:
@@ -295,40 +320,38 @@ class PUT101Strategy(Strategy):
             self.abort(msg)
             return False
 
-        #self.subscribe_bars(self.bar_type)
         self.subscribe_bars(self.bar_type)
         self.subscribe_data(DataType(MyData))
         
         self.risk_manager.on_start()
-        self.point_writer = PointWriter(self.write_api, self.conf.bucket, self.log, self.conf.IDENTIFIER)
-        self.ingress_writer = IngressWriter(self.questdb, self.log, self.conf.IDENTIFIER)
         
 
     def on_order_event(self, event: OrderEvent):
         self.log.debug(f"OrderEvent: {event}")
-        self.ingress_writer.ingress_event(event)
-        
+        if self.events_writer:
+            self.events_writer.write_event_to_questdb(event)
+            self.events_writer.write_event_to_influx(event)
         self.trade_manager.on_order_event(event)
 
     def on_position_event(self, event: PositionEvent):
-        self.point_writer.write_points([self.point_writer.make_point(event)])
-        self.ingress_writer.ingress_event(event)
+        if self.events_writer:
+            self.events_writer.write_event_to_questdb(event)
+            self.events_writer.write_event_to_influx(event)
         self.trade_manager.on_position_event(event)
 
     def on_event(self, event: Event):
-        #self.ingress_event(event)
-        pass
-    
-    def on_signal(self, signal):
-        #self.ingress_event(signal)
-        pass 
+        if self.events_writer:
+            self.events_writer.write_event_to_questdb(event)
+            self.events_writer.write_event_to_influx(event)
     
     def on_data(self, data):
-        if isinstance(data, MyData):
-            self.ingress_writer.ingress_event(data)
-        else:
-            # filtering out depending on optimization/defined list
-            self.ingress_writer.ingress_event(data)
+        if self.events_writer:
+            if isinstance(data, MyData):
+                self.events_writer.write_event_to_questdb(data)
+                self.events_writer.write_event_to_influx(data)
+            else:
+                self.events_writer.write_event_to_questdb(data)
+                self.events_writer.write_event_to_influx(data)
     
     def on_bar(self, bar: Bar) -> bool:
         """
@@ -336,18 +359,20 @@ class PUT101Strategy(Strategy):
         :return: if true bar was processed, else false the bar was not processed
         """
         # debug log some objects
-        self.ingress_writer.ingress_bar(bar, self.instrument_id.value, str(bar.bar_type), str(self.venue), self.conf.IDENTIFIER)
+        if self.ingress_writer:
+            self.ingress_writer.ingress_bar(bar, self.instrument_id.value, str(bar.bar_type), str(self.venue), self.conf.IDENTIFIER)
 
         for tracker in self.overlay_trackers:
             if tracker.initialized:
                 for name, value in tracker.values.items():
                     if value:  # Check if there are any values
-                        self.ingress_writer.ingress_tracker(
-                            self.instrument_id.value,
-                            name,
-                            value[-1],  # Get the last value
-                            bar.ts_event
-                        )
+                        if self.ingress_writer:
+                            self.ingress_writer.ingress_tracker(
+                                self.instrument_id.value,
+                                name,
+                                value[-1],  # Get the last value
+                                bar.ts_event
+                            )
 
         if self.conf.IGNORE_SINGLE_PRICE_BARS and bar.is_single_price():
             return False
@@ -355,6 +380,9 @@ class PUT101Strategy(Strategy):
         # update indicators
         for i,indicator in enumerate(self.indicators):
             indicator.handle_bar(bar)
+
+        for rsi in self.rsi_indicators:
+            rsi.handle_bar(bar)
 
         if not self.all_indicators_ready:
             for indicator in self.indicators:
@@ -395,7 +423,6 @@ class PUT101Strategy(Strategy):
         RISK_PER_TRADE = self.max_dd / 2
         RISK = RISK_PER_TRADE * balance_total
 
-        #qty = self.instrument.make_qty(100_000)
         buy_signal = False
         sell_signal = False
         ts = maybe_unix_nanos_to_dt(bar.ts_event)
@@ -404,7 +431,6 @@ class PUT101Strategy(Strategy):
             buy_signal = True
         if all(b.upper < bar.close.as_double() for b in self.bands):
             sell_signal = True
-
 
         if buy_signal or sell_signal:
             # send custom data event to nautilus
@@ -436,42 +462,45 @@ class PUT101Strategy(Strategy):
                 self.trade_manager.sell(entry,sl,tp,qty)
 
         # INFLUX
-        # measure time it takes to write to influxdb
-        portfolio_point = (
-            Point("portfolio")
-            .tag("strategy_id", self.conf.IDENTIFIER)
-            .field("balance", float(self.portfolio_tracker.sub_indicator.balance))
-            .field("equity", float(self.portfolio_tracker.sub_indicator.equity))
-            .field("margin", float(self.portfolio_tracker.sub_indicator.margin))
-            .field("positions_open_count", cache.positions_open_count())
-            .field("positions_total_count", cache.positions_total_count())
-            .field("orders_open_count", cache.orders_open_count())
-            .field("orders_total_count", cache.orders_total_count())
-            .time(bar.ts_event, WritePrecision.NS)
-        )
-        self.point_writer.write_points([portfolio_point])
-
-        positions_open: list[Position] = cache.positions_open()
-        for pos in positions_open:
-            self.point_writer.write_position(bar, pos, self.conf.IDENTIFIER)
-
-        # write bollinger bands
-        for b in self.bands:
-            point = (
-                Point(f"indicator_bollinger")
+        if self.point_writer:
+            portfolio_point = (
+                Point("portfolio")
                 .tag("strategy_id", self.conf.IDENTIFIER)
-                .tag("parameters", str(b))
-                .field("lower", b.lower)
-                .field("middle", b.middle)
-                .field("upper", b.upper)
+                .field("balance", float(self.portfolio_tracker.sub_indicator.balance))
+                .field("equity", float(self.portfolio_tracker.sub_indicator.equity))
+                .field("margin", float(self.portfolio_tracker.sub_indicator.margin))
+                .field("positions_open_count", cache.positions_open_count())
+                .field("positions_total_count", cache.positions_total_count())
+                .field("orders_open_count", cache.orders_open_count())
+                .field("orders_total_count", cache.orders_total_count())
                 .time(bar.ts_event, WritePrecision.NS)
             )
-            self.point_writer.write_points([point])
+            self.point_writer.write_points([portfolio_point])
+
+            positions_open: list[Position] = cache.positions_open()
+            for pos in positions_open:
+                self.point_writer.write_position(bar, pos, self.conf.IDENTIFIER)
+
+            for b in self.bands:
+                point = (
+                    Point(f"indicator_bollinger")
+                    .tag("strategy_id", self.conf.IDENTIFIER)
+                    .tag("parameters", str(b))
+                    .field("lower", b.lower)
+                    .field("middle", b.middle)
+                    .field("upper", b.upper)
+                    .time(bar.ts_event, WritePrecision.NS)
+                )
+                self.point_writer.write_points([point])
                 
+        if self.portfolio_writer:
+            self.portfolio_writer.write_portfolio_to_influx(self.portfolio, self.cache, bar)
+            self.portfolio_writer.write_positions_to_influx(bar, self.cache.positions_open())
+            self.portfolio_writer.write_portfolio_to_questdb(self.portfolio, self.cache, bar)
+            self.portfolio_writer.write_positions_to_questdb(bar, self.cache.positions_open())
         return True
 
     def make_point(self, event: PositionEvent):
-
         event_type = type(event).__name__
         json_body = {
             "measurement": "position_events",
@@ -497,7 +526,6 @@ class PUT101Strategy(Strategy):
                 "unrealized_pnl": float(event.unrealized_pnl),
             }
         }
-
         return json_body
 
     def write_points(self, points):
@@ -527,14 +555,16 @@ class PUT101Strategy(Strategy):
     def on_stop(self):
         if not self.IS_ABORTED:
             self.log.info("on_stop")
-            self.log.info("stopping influx client")
-            self.client.close()
-            self.log.info("influx client stopped")
+            if self.client:
+                self.log.info("stopping influx client")
+                self.client.close()
+                self.log.info("influx client stopped")
 
-            self.log.info("closing questdb")
-            self.questdb.close()
-            self.questdb = None
-            self.log.info("questdb closed")        
+            if self.questdb:
+                self.log.info("closing questdb")
+                self.questdb.close()
+                self.questdb = None
+                self.log.info("questdb closed")        
 
             self.log.info("closing duckdb")
             self.db.close()

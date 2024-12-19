@@ -21,5 +21,14 @@ bar_type: "${symbol}.${venue}-5-MINUTE-BID-INTERNAL"
 optimization_goals:
   - ["PnL% (total)", "maximize"]
   #- ["Win Rate", "maximize"]
-  
+
+main:
+  indicators:
+    - class: "nautilus_trader.indicators.bollinger_bands.BollingerBands"
+      params: [20, 2.0]
+    - class: "nautilus_trader.indicators.rsi.RelativeStrengthIndex"
+      params: [14]
+    - class: "nautilus_trader.indicators.rsi.RelativeStrengthIndex"
+      params: [28]
+
 

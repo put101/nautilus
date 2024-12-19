@@ -1,5 +1,6 @@
 {
     "python.analysis.extraPaths": [
-        "./strategies/v2_1"
+        "./strategies/v2_1",
+        "./strategies/v2_5"
     ]
 }

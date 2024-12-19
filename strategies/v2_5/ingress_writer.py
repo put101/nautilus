@@ -11,6 +11,7 @@ class IngressWriter:
         self.identifier:str = identifier
 
     def ingress_tracker(self, instrument_id: str, name: str, value: float, ts: int):
+        # Writes tracker data to QuestDB
         try:
             self.sender.row(
                 'indicators',
@@ -30,6 +31,7 @@ class IngressWriter:
             raise Exception(f"ingress_indicator cannot write to questdb: {e}")
 
     def ingress_event(self, event: Event):
+        # Writes event data to QuestDB
         real_time_ns = int(datetime.datetime.now().timestamp() * 1e9)
         try:
             self.sender.row(
@@ -50,6 +52,7 @@ class IngressWriter:
             raise Exception(f"ingress_event cannot write to questdb: {e}")
 
     def ingress_bar(self, bar: Bar, instrument_id: str, bar_type: str, venue: str, identifier: str):
+        # Writes bar data to QuestDB
         try:
             self.sender.row(
                 'bars',

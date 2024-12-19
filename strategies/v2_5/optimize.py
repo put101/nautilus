@@ -36,7 +36,7 @@ import sys
 import dotenv
 dotenv.load_dotenv(verbose=True, override=True)
 
-sys.path.append(str(pathlib.Path(__file__).resolve().parent))
+sys.path.append(str(pathlib.Path(__file__).resolve().parent.parent))
 
 from nautilus_trader.common.component import init_logging, Logger
 
@@ -73,6 +73,32 @@ def validate_environment(env_vars: List[str]) -> None:
         raise EnvironmentError(f"Set the following environment variables: {missing_vars}")
 
 
+def generate_indicator_configs(trial: optuna.Trial) -> list[dict]:
+    """Generate a list of indicator configurations."""
+    indicator_classes = [
+        "nautilus_trader.indicators.bollinger_bands.BollingerBands",
+        "nautilus_trader.indicators.rsi.RelativeStrengthIndex",
+        # Add more indicator classes as needed
+    ]
+    
+    indicator_configs = []
+    num_indicators = trial.suggest_int("num_indicators", 1, len(indicator_classes))
+    
+    for i in range(num_indicators):
+        indicator_class = trial.suggest_categorical(f"indicator_class_{i}", indicator_classes)
+        if indicator_class == "nautilus_trader.indicators.bollinger_bands.BollingerBands":
+            period = trial.suggest_int(f"bb_period_{i}", 10, 50)
+            std = trial.suggest_float(f"bb_std_{i}", 1.0, 3.0)
+            params = [period, std]
+        elif indicator_class == "nautilus_trader.indicators.rsi.RelativeStrengthIndex":
+            period = trial.suggest_int(f"rsi_period_{i}", 10, 50)
+            params = [period]
+        # Add more indicator parameter configurations as needed
+        indicator_configs.append({"class": indicator_class, "params": params})
+    
+    return indicator_configs
+
+
 def create_backtest_config(trial: optuna.Trial, cfg: BacktestConfig) -> BacktestRunConfig:
     """Create a backtest configuration for a specific trial."""
     
@@ -96,17 +122,19 @@ def create_backtest_config(trial: optuna.Trial, cfg: BacktestConfig) -> Backtest
     IDENTIFIER=f"{cfg.study_name}_trial_{trial.number}"
     trial.set_user_attr("IDENTIFIER", IDENTIFIER)
 
+    indicator_configs = generate_indicator_configs(trial)
+    
     main_conf = MainConfig(
         environment=os.environ.copy(),
         instrument_id=instrument_id,
         bar_type=f"{instrument_id}-5-MINUTE-BID-INTERNAL",
         IDENTIFIER=f"{cfg.study_name}_trial_{trial.number}",
-        bb_params=[
-            (bb_period, bb_std),
-        ],
+        indicators=indicator_configs,
         sl_pips=sl_pips,
         tp_pips=0,
         risk_reward=risk_reward,
+        bb_params=[(bb_period, bb_std)],
+        rsi_periods=[]
     )
     
     dict_conf = dict(
